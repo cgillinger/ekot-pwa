@@ -10,14 +10,21 @@
     const CONFIG = {
         RSS_URL: '/api/rss', // Proxied through server to avoid CORS
         TIMEZONE: 'Europe/Stockholm',
-        SLOTS: ['08:00', '12:45', '16:45', '17:45'],
+        // Slots with pollStart = when broadcast ends (earliest availability)
+        // Broadcast lengths vary: 08:00 (5-15min), 12:30 (20-25min), 16:45 (15min), 17:45 (20min)
+        SLOTS: [
+            { time: '08:00', pollStart: { hour: 8, minute: 20 } },   // +20min margin
+            { time: '12:30', pollStart: { hour: 13, minute: 0 } },   // +30min margin
+            { time: '16:45', pollStart: { hour: 17, minute: 5 } },   // +20min margin
+            { time: '17:45', pollStart: { hour: 18, minute: 10 } }   // +25min margin
+        ],
         POLL_INTERVALS: {
             ACTIVE: 60000,      // 1 minute during active window
             EXTENDED: 300000,   // 5 minutes during extended window
             IDLE: 1800000       // 30 minutes outside windows
         },
-        ACTIVE_WINDOW: 10,      // Minutes after slot time for active polling
-        EXTENDED_WINDOW: 30     // Minutes after slot time for extended polling
+        ACTIVE_WINDOW: 10,      // Minutes after pollStart for active polling
+        EXTENDED_WINDOW: 30     // Minutes after pollStart for extended polling
     };
 
     // State
@@ -102,11 +109,25 @@
      */
     function extractSlotFromTitle(title) {
         for (const slot of CONFIG.SLOTS) {
-            if (title.includes(slot)) {
-                return slot;
+            if (title.includes(slot.time)) {
+                return slot.time;
             }
         }
         return null;
+    }
+
+    /**
+     * Get slot times as simple array
+     */
+    function getSlotTimes() {
+        return CONFIG.SLOTS.map(s => s.time);
+    }
+
+    /**
+     * Get slot config by time
+     */
+    function getSlotConfig(time) {
+        return CONFIG.SLOTS.find(s => s.time === time);
     }
 
     /**
@@ -264,6 +285,7 @@
 
     /**
      * Calculate optimal poll interval based on current time
+     * Polling starts AFTER broadcast ends (pollStart), not when it begins
      */
     function calculatePollInterval() {
         const { hour, minute } = getStockholmHourMinute();
@@ -271,17 +293,16 @@
 
         // Check each slot
         for (const slot of CONFIG.SLOTS) {
-            const [slotHour, slotMinute] = slot.split(':').map(Number);
-            const slotMinutes = slotHour * 60 + slotMinute;
-            const diff = currentMinutes - slotMinutes;
+            const pollStartMinutes = slot.pollStart.hour * 60 + slot.pollStart.minute;
+            const diff = currentMinutes - pollStartMinutes;
 
             // If broadcast for this slot doesn't exist yet
-            if (!state.broadcasts[slot]) {
-                // Active window: T to T+10
+            if (!state.broadcasts[slot.time]) {
+                // Active window: pollStart to pollStart+10
                 if (diff >= 0 && diff <= CONFIG.ACTIVE_WINDOW) {
                     return CONFIG.POLL_INTERVALS.ACTIVE;
                 }
-                // Extended window: T+10 to T+30
+                // Extended window: pollStart+10 to pollStart+30
                 if (diff > CONFIG.ACTIVE_WINDOW && diff <= CONFIG.EXTENDED_WINDOW) {
                     return CONFIG.POLL_INTERVALS.EXTENDED;
                 }
@@ -314,10 +335,10 @@
         let latestTimestamp = 0;
 
         for (const slot of CONFIG.SLOTS) {
-            const broadcast = state.broadcasts[slot];
+            const broadcast = state.broadcasts[slot.time];
             if (broadcast && broadcast.timestamp > latestTimestamp) {
                 latestTimestamp = broadcast.timestamp;
-                latest = slot;
+                latest = slot.time;
             }
         }
 
@@ -329,17 +350,17 @@
      */
     function getSortedSlots() {
         const latestSlot = findLatestBroadcast();
-        const slots = [...CONFIG.SLOTS];
+        const slotTimes = getSlotTimes();
 
         if (latestSlot) {
-            const index = slots.indexOf(latestSlot);
+            const index = slotTimes.indexOf(latestSlot);
             if (index > -1) {
-                slots.splice(index, 1);
-                slots.unshift(latestSlot);
+                slotTimes.splice(index, 1);
+                slotTimes.unshift(latestSlot);
             }
         }
 
-        return slots;
+        return slotTimes;
     }
 
     /**
