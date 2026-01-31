@@ -84,24 +84,23 @@ body {
     padding: var(--tile-gap);
     padding-left: calc(var(--tile-gap) + var(--safe-area-left));
     padding-right: calc(var(--tile-gap) + var(--safe-area-right));
-    /* Center the grid if tiles don't fill width */
-    max-width: calc(100dvh - var(--header-height) - var(--player-height) - var(--safe-area-top) - var(--safe-area-bottom));
-    margin: 0 auto;
-    align-content: stretch;
+    align-content: center;
+    justify-content: center;
 }
 
-/* Individual Tile - Square, fills grid cell */
+/* Individual Tile - Square, based on available width */
 .tile {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    aspect-ratio: 1 / 1;
-    width: 100%;
-    height: 100%;
-    max-width: 100%;
-    max-height: 100%;
+    /* Calculate tile size: (viewport width - gaps - padding) / 2 */
+    width: calc((100vw - var(--tile-gap) * 3 - var(--safe-area-left) - var(--safe-area-right)) / 2);
+    height: calc((100vw - var(--tile-gap) * 3 - var(--safe-area-left) - var(--safe-area-right)) / 2);
+    /* But don't exceed available height */
+    max-width: calc((100dvh - var(--header-height) - var(--player-height) - var(--tile-gap) * 3 - var(--safe-area-top) - var(--safe-area-bottom)) / 2);
+    max-height: calc((100dvh - var(--header-height) - var(--player-height) - var(--tile-gap) * 3 - var(--safe-area-top) - var(--safe-area-bottom)) / 2);
     border-radius: var(--border-radius);
     overflow: hidden;
     cursor: pointer;
@@ -384,7 +383,7 @@ body {
     }
 }
 
-/* Landscape mode */
+/* Landscape mode - tiles sized by height instead of width */
 @media (orientation: landscape) {
     :root {
         --header-height: 50px;
@@ -392,10 +391,12 @@ body {
         --tile-gap: 6px;
     }
 
-    .tiles-container {
-        max-width: none;
-        width: auto;
-        height: 100%;
+    .tile {
+        /* In landscape, height is limiting factor */
+        width: calc((100dvh - var(--header-height) - var(--player-height) - var(--tile-gap) * 3 - var(--safe-area-top) - var(--safe-area-bottom)) / 2);
+        height: calc((100dvh - var(--header-height) - var(--player-height) - var(--tile-gap) * 3 - var(--safe-area-top) - var(--safe-area-bottom)) / 2);
+        max-width: calc((100vw - var(--tile-gap) * 3 - var(--safe-area-left) - var(--safe-area-right)) / 2);
+        max-height: calc((100vw - var(--tile-gap) * 3 - var(--safe-area-left) - var(--safe-area-right)) / 2);
     }
 
     .app-header h1 {
