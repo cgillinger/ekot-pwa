@@ -201,17 +201,29 @@
     /**
      * Fetch RSS feed
      */
-    async function fetchRss() {
+    async function fetchRss(forceRefresh = false) {
         try {
             const headers = {};
-            if (state.lastEtag) {
-                headers['If-None-Match'] = state.lastEtag;
-            }
-            if (state.lastModified) {
-                headers['If-Modified-Since'] = state.lastModified;
+
+            // Use conditional headers only if not forcing refresh
+            if (!forceRefresh) {
+                if (state.lastEtag) {
+                    headers['If-None-Match'] = state.lastEtag;
+                }
+                if (state.lastModified) {
+                    headers['If-Modified-Since'] = state.lastModified;
+                }
             }
 
-            const response = await fetch(CONFIG.RSS_URL, { headers });
+            // Add cache-busting for first load to avoid browser cache issues
+            const url = forceRefresh
+                ? `${CONFIG.RSS_URL}?_=${Date.now()}`
+                : CONFIG.RSS_URL;
+
+            const response = await fetch(url, {
+                headers,
+                cache: forceRefresh ? 'no-store' : 'default'
+            });
 
             // Handle 304 Not Modified
             if (response.status === 304) {
@@ -238,10 +250,10 @@
     /**
      * Update broadcasts and render
      */
-    async function updateBroadcasts() {
+    async function updateBroadcasts(forceRefresh = false) {
         checkDayChange();
 
-        const newBroadcasts = await fetchRss();
+        const newBroadcasts = await fetchRss(forceRefresh);
         if (newBroadcasts) {
             // Merge new broadcasts with existing
             Object.assign(state.broadcasts, newBroadcasts);
@@ -579,8 +591,8 @@
         // Initial render (empty state)
         renderTiles();
 
-        // Fetch initial data
-        await updateBroadcasts();
+        // Fetch initial data with cache-busting to ensure fresh data
+        await updateBroadcasts(true);
 
         // Start polling
         schedulePoll();
