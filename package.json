@@ -1,0 +1,11 @@
+{
+    "name": "ekot-webapp",
+    "version": "1.0.0",
+    "description": "Minimal web app for Sveriges Radio Ekot broadcasts",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "keywords": ["ekot", "sveriges-radio", "pwa"],
+    "license": "MIT"
+}

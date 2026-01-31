@@ -1,0 +1,595 @@
+/**
+ * Ekot Web App
+ * Minimal web app for Sveriges Radio Ekot broadcasts
+ */
+
+(function() {
+    'use strict';
+
+    // Configuration
+    const CONFIG = {
+        RSS_URL: '/api/rss', // Proxied through server to avoid CORS
+        TIMEZONE: 'Europe/Stockholm',
+        SLOTS: ['08:00', '12:45', '16:45', '17:45'],
+        POLL_INTERVALS: {
+            ACTIVE: 60000,      // 1 minute during active window
+            EXTENDED: 300000,   // 5 minutes during extended window
+            IDLE: 1800000       // 30 minutes outside windows
+        },
+        ACTIVE_WINDOW: 10,      // Minutes after slot time for active polling
+        EXTENDED_WINDOW: 30     // Minutes after slot time for extended polling
+    };
+
+    // State
+    const state = {
+        broadcasts: {},          // Keyed by slot time
+        currentSlot: null,       // Currently playing slot
+        lastFetchDate: null,     // Last date we fetched for
+        pollTimer: null,
+        lastEtag: null,
+        lastModified: null
+    };
+
+    // DOM Elements
+    const elements = {
+        tilesContainer: null,
+        audioPlayer: null,
+        playPause: null,
+        playPauseIcon: null,
+        skipBack: null,
+        skipForward: null,
+        currentTime: null,
+        duration: null,
+        progressBar: null,
+        progressFill: null,
+        nowPlaying: null,
+        statusMessage: null,
+        dateDisplay: null
+    };
+
+    /**
+     * Get current date in Stockholm timezone as YYYY-MM-DD
+     */
+    function getStockholmDate() {
+        const now = new Date();
+        return now.toLocaleDateString('sv-SE', { timeZone: CONFIG.TIMEZONE });
+    }
+
+    /**
+     * Get current time in Stockholm timezone as HH:MM
+     */
+    function getStockholmTime() {
+        const now = new Date();
+        return now.toLocaleTimeString('sv-SE', {
+            timeZone: CONFIG.TIMEZONE,
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    /**
+     * Get current hour and minute in Stockholm timezone
+     */
+    function getStockholmHourMinute() {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('sv-SE', {
+            timeZone: CONFIG.TIMEZONE,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        const [hour, minute] = timeStr.split(':').map(Number);
+        return { hour, minute };
+    }
+
+    /**
+     * Parse RSS pubDate to Stockholm date string
+     */
+    function parseRssDateToStockholm(pubDateStr) {
+        const date = new Date(pubDateStr);
+        return date.toLocaleDateString('sv-SE', { timeZone: CONFIG.TIMEZONE });
+    }
+
+    /**
+     * Parse RSS pubDate to timestamp
+     */
+    function parseRssDateToTimestamp(pubDateStr) {
+        return new Date(pubDateStr).getTime();
+    }
+
+    /**
+     * Extract time slot from title (e.g., "Ekot 08:00" -> "08:00")
+     */
+    function extractSlotFromTitle(title) {
+        for (const slot of CONFIG.SLOTS) {
+            if (title.includes(slot)) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Format seconds to MM:SS
+     */
+    function formatTime(seconds) {
+        if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    /**
+     * Show status message
+     */
+    function showStatus(message, isError = false, duration = 3000) {
+        elements.statusMessage.textContent = message;
+        elements.statusMessage.classList.toggle('error', isError);
+        elements.statusMessage.classList.add('visible');
+
+        setTimeout(() => {
+            elements.statusMessage.classList.remove('visible');
+        }, duration);
+    }
+
+    /**
+     * Reset state for new day
+     */
+    function resetForNewDay() {
+        state.broadcasts = {};
+        state.currentSlot = null;
+        state.lastFetchDate = getStockholmDate();
+        stopPlayback();
+        renderTiles();
+    }
+
+    /**
+     * Check if we need to reset for a new day
+     */
+    function checkDayChange() {
+        const currentDate = getStockholmDate();
+        if (state.lastFetchDate && state.lastFetchDate !== currentDate) {
+            resetForNewDay();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Parse RSS XML and extract broadcasts
+     */
+    function parseRss(xmlText) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xmlText, 'application/xml');
+
+        const parseError = doc.querySelector('parsererror');
+        if (parseError) {
+            throw new Error('RSS parse error');
+        }
+
+        const items = doc.querySelectorAll('item');
+        const todayStr = getStockholmDate();
+        const broadcasts = {};
+
+        items.forEach(item => {
+            const title = item.querySelector('title')?.textContent || '';
+            const pubDate = item.querySelector('pubDate')?.textContent || '';
+            const enclosure = item.querySelector('enclosure');
+            const audioUrl = enclosure?.getAttribute('url') || '';
+
+            // Only process items from today
+            const itemDate = parseRssDateToStockholm(pubDate);
+            if (itemDate !== todayStr) return;
+
+            // Extract slot from title
+            const slot = extractSlotFromTitle(title);
+            if (!slot) return;
+
+            // Store broadcast info
+            broadcasts[slot] = {
+                title,
+                pubDate,
+                timestamp: parseRssDateToTimestamp(pubDate),
+                audioUrl,
+                slot
+            };
+        });
+
+        return broadcasts;
+    }
+
+    /**
+     * Fetch RSS feed
+     */
+    async function fetchRss() {
+        try {
+            const headers = {};
+            if (state.lastEtag) {
+                headers['If-None-Match'] = state.lastEtag;
+            }
+            if (state.lastModified) {
+                headers['If-Modified-Since'] = state.lastModified;
+            }
+
+            const response = await fetch(CONFIG.RSS_URL, { headers });
+
+            // Handle 304 Not Modified
+            if (response.status === 304) {
+                return null;
+            }
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            // Store cache headers
+            state.lastEtag = response.headers.get('ETag');
+            state.lastModified = response.headers.get('Last-Modified');
+
+            const xmlText = await response.text();
+            return parseRss(xmlText);
+        } catch (error) {
+            console.error('Failed to fetch RSS:', error);
+            showStatus('Kunde inte hämta sändningar', true);
+            return null;
+        }
+    }
+
+    /**
+     * Update broadcasts and render
+     */
+    async function updateBroadcasts() {
+        checkDayChange();
+
+        const newBroadcasts = await fetchRss();
+        if (newBroadcasts) {
+            // Merge new broadcasts with existing
+            Object.assign(state.broadcasts, newBroadcasts);
+            state.lastFetchDate = getStockholmDate();
+            renderTiles();
+        }
+    }
+
+    /**
+     * Calculate optimal poll interval based on current time
+     */
+    function calculatePollInterval() {
+        const { hour, minute } = getStockholmHourMinute();
+        const currentMinutes = hour * 60 + minute;
+
+        // Check each slot
+        for (const slot of CONFIG.SLOTS) {
+            const [slotHour, slotMinute] = slot.split(':').map(Number);
+            const slotMinutes = slotHour * 60 + slotMinute;
+            const diff = currentMinutes - slotMinutes;
+
+            // If broadcast for this slot doesn't exist yet
+            if (!state.broadcasts[slot]) {
+                // Active window: T to T+10
+                if (diff >= 0 && diff <= CONFIG.ACTIVE_WINDOW) {
+                    return CONFIG.POLL_INTERVALS.ACTIVE;
+                }
+                // Extended window: T+10 to T+30
+                if (diff > CONFIG.ACTIVE_WINDOW && diff <= CONFIG.EXTENDED_WINDOW) {
+                    return CONFIG.POLL_INTERVALS.EXTENDED;
+                }
+            }
+        }
+
+        return CONFIG.POLL_INTERVALS.IDLE;
+    }
+
+    /**
+     * Schedule next poll
+     */
+    function schedulePoll() {
+        if (state.pollTimer) {
+            clearTimeout(state.pollTimer);
+        }
+
+        const interval = calculatePollInterval();
+        state.pollTimer = setTimeout(async () => {
+            await updateBroadcasts();
+            schedulePoll();
+        }, interval);
+    }
+
+    /**
+     * Find the latest broadcast among available slots
+     */
+    function findLatestBroadcast() {
+        let latest = null;
+        let latestTimestamp = 0;
+
+        for (const slot of CONFIG.SLOTS) {
+            const broadcast = state.broadcasts[slot];
+            if (broadcast && broadcast.timestamp > latestTimestamp) {
+                latestTimestamp = broadcast.timestamp;
+                latest = slot;
+            }
+        }
+
+        return latest;
+    }
+
+    /**
+     * Sort slots with latest first
+     */
+    function getSortedSlots() {
+        const latestSlot = findLatestBroadcast();
+        const slots = [...CONFIG.SLOTS];
+
+        if (latestSlot) {
+            const index = slots.indexOf(latestSlot);
+            if (index > -1) {
+                slots.splice(index, 1);
+                slots.unshift(latestSlot);
+            }
+        }
+
+        return slots;
+    }
+
+    /**
+     * Render tiles
+     */
+    function renderTiles() {
+        const latestSlot = findLatestBroadcast();
+        const sortedSlots = getSortedSlots();
+
+        elements.tilesContainer.innerHTML = '';
+
+        sortedSlots.forEach(slot => {
+            const broadcast = state.broadcasts[slot];
+            const isActive = !!broadcast;
+            const isLatest = slot === latestSlot;
+            const isPlaying = state.currentSlot === slot;
+
+            const tile = document.createElement('div');
+            tile.className = 'tile';
+            tile.classList.toggle('active', isActive);
+            tile.classList.toggle('inactive', !isActive);
+            tile.classList.toggle('latest', isLatest);
+            tile.classList.toggle('playing', isPlaying);
+            tile.dataset.slot = slot;
+
+            const icon = document.createElement('img');
+            icon.className = 'tile-icon';
+            icon.src = isActive ? 'assets/icon-96x96.png' : 'assets/icon-gray-96x96.png';
+            icon.alt = 'Ekot';
+
+            const timeLabel = document.createElement('span');
+            timeLabel.className = 'tile-time';
+            timeLabel.textContent = slot;
+
+            tile.appendChild(icon);
+            tile.appendChild(timeLabel);
+
+            if (isActive) {
+                tile.addEventListener('click', () => playBroadcast(slot));
+            }
+
+            elements.tilesContainer.appendChild(tile);
+        });
+
+        // Update date display
+        updateDateDisplay();
+    }
+
+    /**
+     * Update date display
+     */
+    function updateDateDisplay() {
+        const date = new Date();
+        const options = {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            timeZone: CONFIG.TIMEZONE
+        };
+        elements.dateDisplay.textContent = date.toLocaleDateString('sv-SE', options);
+    }
+
+    /**
+     * Play broadcast
+     */
+    function playBroadcast(slot) {
+        const broadcast = state.broadcasts[slot];
+        if (!broadcast || !broadcast.audioUrl) {
+            showStatus('Ingen sändning tillgänglig', true);
+            return;
+        }
+
+        // Update state
+        state.currentSlot = slot;
+
+        // Set audio source and play (must be synchronous with user gesture)
+        elements.audioPlayer.src = broadcast.audioUrl;
+        elements.audioPlayer.play().catch(error => {
+            console.error('Playback error:', error);
+            showStatus('Kunde inte spela upp ljudet', true);
+        });
+
+        // Update UI
+        elements.nowPlaying.textContent = `Ekot ${slot}`;
+        renderTiles();
+    }
+
+    /**
+     * Stop playback
+     */
+    function stopPlayback() {
+        elements.audioPlayer.pause();
+        elements.audioPlayer.src = '';
+        state.currentSlot = null;
+        elements.nowPlaying.textContent = 'Ingen uppspelning';
+        elements.playPauseIcon.textContent = '\u25B6';
+        elements.currentTime.textContent = '0:00';
+        elements.duration.textContent = '0:00';
+        elements.progressFill.style.width = '0%';
+        renderTiles();
+    }
+
+    /**
+     * Toggle play/pause
+     */
+    function togglePlayPause() {
+        if (!elements.audioPlayer.src) {
+            // If nothing loaded, play the latest broadcast
+            const latestSlot = findLatestBroadcast();
+            if (latestSlot) {
+                playBroadcast(latestSlot);
+            } else {
+                showStatus('Inga sändningar idag ännu');
+            }
+            return;
+        }
+
+        if (elements.audioPlayer.paused) {
+            elements.audioPlayer.play().catch(error => {
+                console.error('Playback error:', error);
+                showStatus('Kunde inte spela upp ljudet', true);
+            });
+        } else {
+            elements.audioPlayer.pause();
+        }
+    }
+
+    /**
+     * Skip time
+     */
+    function skipTime(seconds) {
+        if (elements.audioPlayer.src) {
+            elements.audioPlayer.currentTime = Math.max(
+                0,
+                Math.min(
+                    elements.audioPlayer.duration || 0,
+                    elements.audioPlayer.currentTime + seconds
+                )
+            );
+        }
+    }
+
+    /**
+     * Seek to position
+     */
+    function seekTo(event) {
+        if (!elements.audioPlayer.src || !elements.audioPlayer.duration) return;
+
+        const rect = elements.progressBar.getBoundingClientRect();
+        const percent = (event.clientX - rect.left) / rect.width;
+        elements.audioPlayer.currentTime = percent * elements.audioPlayer.duration;
+    }
+
+    /**
+     * Update progress display
+     */
+    function updateProgress() {
+        const current = elements.audioPlayer.currentTime || 0;
+        const total = elements.audioPlayer.duration || 0;
+
+        elements.currentTime.textContent = formatTime(current);
+        elements.duration.textContent = formatTime(total);
+
+        if (total > 0) {
+            elements.progressFill.style.width = `${(current / total) * 100}%`;
+        }
+    }
+
+    /**
+     * Setup audio event listeners
+     */
+    function setupAudioListeners() {
+        elements.audioPlayer.addEventListener('play', () => {
+            elements.playPauseIcon.textContent = '\u23F8';
+        });
+
+        elements.audioPlayer.addEventListener('pause', () => {
+            elements.playPauseIcon.textContent = '\u25B6';
+        });
+
+        elements.audioPlayer.addEventListener('timeupdate', updateProgress);
+
+        elements.audioPlayer.addEventListener('loadedmetadata', () => {
+            elements.duration.textContent = formatTime(elements.audioPlayer.duration);
+        });
+
+        elements.audioPlayer.addEventListener('ended', () => {
+            state.currentSlot = null;
+            elements.playPauseIcon.textContent = '\u25B6';
+            elements.progressFill.style.width = '0%';
+            renderTiles();
+        });
+
+        elements.audioPlayer.addEventListener('error', () => {
+            showStatus('Fel vid uppspelning', true);
+            stopPlayback();
+        });
+    }
+
+    /**
+     * Setup control listeners
+     */
+    function setupControlListeners() {
+        elements.playPause.addEventListener('click', togglePlayPause);
+        elements.skipBack.addEventListener('click', () => skipTime(-15));
+        elements.skipForward.addEventListener('click', () => skipTime(15));
+        elements.progressBar.addEventListener('click', seekTo);
+    }
+
+    /**
+     * Check for midnight reset
+     */
+    function setupMidnightCheck() {
+        // Check every minute for day change
+        setInterval(() => {
+            if (checkDayChange()) {
+                updateBroadcasts();
+            }
+        }, 60000);
+    }
+
+    /**
+     * Initialize app
+     */
+    async function init() {
+        // Cache DOM elements
+        elements.tilesContainer = document.getElementById('tilesContainer');
+        elements.audioPlayer = document.getElementById('audioPlayer');
+        elements.playPause = document.getElementById('playPause');
+        elements.playPauseIcon = document.getElementById('playPauseIcon');
+        elements.skipBack = document.getElementById('skipBack');
+        elements.skipForward = document.getElementById('skipForward');
+        elements.currentTime = document.getElementById('currentTime');
+        elements.duration = document.getElementById('duration');
+        elements.progressBar = document.getElementById('progressBar');
+        elements.progressFill = document.getElementById('progressFill');
+        elements.nowPlaying = document.getElementById('nowPlaying');
+        elements.statusMessage = document.getElementById('statusMessage');
+        elements.dateDisplay = document.getElementById('dateDisplay');
+
+        // Set initial date
+        state.lastFetchDate = getStockholmDate();
+
+        // Setup listeners
+        setupAudioListeners();
+        setupControlListeners();
+        setupMidnightCheck();
+
+        // Initial render (empty state)
+        renderTiles();
+
+        // Fetch initial data
+        await updateBroadcasts();
+
+        // Start polling
+        schedulePoll();
+    }
+
+    // Start app when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
