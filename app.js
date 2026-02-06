@@ -443,6 +443,9 @@
             showStatus('Kunde inte spela upp ljudet', true);
         });
 
+        // Update Media Session metadata for lock screen / headphone controls
+        updateMediaSessionMetadata(slot);
+
         // Update UI
         elements.nowPlaying.textContent = `Ekot ${slot}`;
         renderTiles();
@@ -541,10 +544,14 @@
             elements.playPauseIcon.textContent = '\u25B6';
         });
 
-        elements.audioPlayer.addEventListener('timeupdate', updateProgress);
+        elements.audioPlayer.addEventListener('timeupdate', () => {
+            updateProgress();
+            updateMediaSessionPosition();
+        });
 
         elements.audioPlayer.addEventListener('loadedmetadata', () => {
             elements.duration.textContent = formatTime(elements.audioPlayer.duration);
+            updateMediaSessionPosition();
         });
 
         elements.audioPlayer.addEventListener('ended', () => {
@@ -568,6 +575,97 @@
         elements.skipBack.addEventListener('click', () => skipTime(-15));
         elements.skipForward.addEventListener('click', () => skipTime(15));
         elements.progressBar.addEventListener('click', seekTo);
+    }
+
+    /**
+     * Setup Media Session API for headphone/lock screen controls
+     */
+    function setupMediaSession() {
+        if (!('mediaSession' in navigator)) {
+            console.log('Media Session API not supported');
+            return;
+        }
+
+        // Play/Pause handlers
+        navigator.mediaSession.setActionHandler('play', () => {
+            elements.audioPlayer.play();
+        });
+
+        navigator.mediaSession.setActionHandler('pause', () => {
+            elements.audioPlayer.pause();
+        });
+
+        // Seek backward (previous track button = -15s)
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+            skipTime(-15);
+        });
+
+        // Seek forward (next track button = +15s)
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+            skipTime(15);
+        });
+
+        // Explicit seek handlers (for scrubbing on lock screen)
+        navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+            const skipSeconds = details.seekOffset || 15;
+            skipTime(-skipSeconds);
+        });
+
+        navigator.mediaSession.setActionHandler('seekforward', (details) => {
+            const skipSeconds = details.seekOffset || 15;
+            skipTime(skipSeconds);
+        });
+
+        // Seek to specific position
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (details.seekTime !== undefined && elements.audioPlayer.duration) {
+                elements.audioPlayer.currentTime = details.seekTime;
+            }
+        });
+
+        // Stop handler
+        navigator.mediaSession.setActionHandler('stop', () => {
+            stopPlayback();
+        });
+    }
+
+    /**
+     * Update Media Session metadata for current broadcast
+     */
+    function updateMediaSessionMetadata(slot) {
+        if (!('mediaSession' in navigator)) return;
+
+        const broadcast = state.broadcasts[slot];
+        const title = broadcast ? `Ekot ${slot}` : 'Ekot';
+
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: title,
+            artist: 'Sveriges Radio',
+            album: 'Ekot',
+            artwork: [
+                { src: 'assets/icon-96x96.png', sizes: '96x96', type: 'image/png' },
+                { src: 'assets/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+                { src: 'assets/icon-512x512.png', sizes: '512x512', type: 'image/png' }
+            ]
+        });
+    }
+
+    /**
+     * Update Media Session playback position state
+     */
+    function updateMediaSessionPosition() {
+        if (!('mediaSession' in navigator)) return;
+        if (!elements.audioPlayer.duration) return;
+
+        try {
+            navigator.mediaSession.setPositionState({
+                duration: elements.audioPlayer.duration,
+                playbackRate: elements.audioPlayer.playbackRate,
+                position: elements.audioPlayer.currentTime
+            });
+        } catch (e) {
+            // setPositionState may not be supported everywhere
+        }
     }
 
     /**
@@ -607,6 +705,7 @@
         // Setup listeners
         setupAudioListeners();
         setupControlListeners();
+        setupMediaSession();
         setupMidnightCheck();
 
         // Initial render (empty state)
