@@ -6,6 +6,10 @@
 (function() {
     'use strict';
 
+    // App version - bump this to force cache refresh
+    const VERSION = '1.1.0';
+    console.log(`Ekot Web App v${VERSION}`);
+
     // Configuration
     const CONFIG = {
         RSS_URL: '/api/rss', // Proxied through server to avoid CORS
