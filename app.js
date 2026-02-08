@@ -7,7 +7,7 @@
     'use strict';
 
     // App version - bump this to force cache refresh
-    const VERSION = '1.2.0';
+    const VERSION = '1.2.1';
     console.log(`Ekot Web App v${VERSION}`);
 
     // Configuration
