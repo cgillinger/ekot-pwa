@@ -7,7 +7,7 @@
     'use strict';
 
     // App version - bump this to force cache refresh
-    const VERSION = '1.1.0';
+    const VERSION = '1.2.0';
     console.log(`Ekot Web App v${VERSION}`);
 
     // Configuration
@@ -28,7 +28,8 @@
             IDLE: 1800000       // 30 minutes outside windows
         },
         ACTIVE_WINDOW: 10,      // Minutes after pollStart for active polling
-        EXTENDED_WINDOW: 30     // Minutes after pollStart for extended polling
+        EXTENDED_WINDOW: 30,    // Minutes after pollStart for extended polling
+        AUDIO_FOCUS_TIMEOUT: 15 * 60 * 1000  // 15 minutes in ms - release audio focus after this
     };
 
     // State
@@ -38,7 +39,8 @@
         lastFetchDate: null,     // Last date we fetched for
         pollTimer: null,
         lastEtag: null,
-        lastModified: null
+        lastModified: null,
+        audioFocusTimer: null   // Timer for releasing audio focus after pause
     };
 
     // DOM Elements
@@ -55,7 +57,8 @@
         progressFill: null,
         nowPlaying: null,
         statusMessage: null,
-        dateDisplay: null
+        dateDisplay: null,
+        silencePlayer: null
     };
 
     /**
@@ -437,6 +440,9 @@
             return;
         }
 
+        // Stop any audio focus keep-alive from a previous pause
+        stopAudioFocusKeepAlive();
+
         // Update state
         state.currentSlot = slot;
 
@@ -459,6 +465,7 @@
      * Stop playback
      */
     function stopPlayback() {
+        stopAudioFocusKeepAlive();
         elements.audioPlayer.pause();
         elements.audioPlayer.src = '';
         state.currentSlot = null;
@@ -468,6 +475,37 @@
         elements.duration.textContent = '0:00';
         elements.progressFill.style.width = '0%';
         renderTiles();
+    }
+
+    /**
+     * Start silent audio to keep audio focus while paused.
+     * Automatically releases after CONFIG.AUDIO_FOCUS_TIMEOUT.
+     */
+    function startAudioFocusKeepAlive() {
+        stopAudioFocusKeepAlive();
+
+        elements.silencePlayer.src = 'assets/silence.wav';
+        elements.silencePlayer.play().catch(error => {
+            console.log('Could not start silence player:', error);
+        });
+
+        state.audioFocusTimer = setTimeout(() => {
+            console.log('Audio focus timeout reached, releasing');
+            stopAudioFocusKeepAlive();
+            stopPlayback();
+        }, CONFIG.AUDIO_FOCUS_TIMEOUT);
+    }
+
+    /**
+     * Stop silent audio and clear the focus timeout
+     */
+    function stopAudioFocusKeepAlive() {
+        if (state.audioFocusTimer) {
+            clearTimeout(state.audioFocusTimer);
+            state.audioFocusTimer = null;
+        }
+        elements.silencePlayer.pause();
+        elements.silencePlayer.src = '';
     }
 
     /**
@@ -486,12 +524,14 @@
         }
 
         if (elements.audioPlayer.paused) {
+            stopAudioFocusKeepAlive();
             elements.audioPlayer.play().catch(error => {
                 console.error('Playback error:', error);
                 showStatus('Kunde inte spela upp ljudet', true);
             });
         } else {
             elements.audioPlayer.pause();
+            startAudioFocusKeepAlive();
         }
     }
 
@@ -592,11 +632,13 @@
 
         // Play/Pause handlers
         navigator.mediaSession.setActionHandler('play', () => {
+            stopAudioFocusKeepAlive();
             elements.audioPlayer.play();
         });
 
         navigator.mediaSession.setActionHandler('pause', () => {
             elements.audioPlayer.pause();
+            startAudioFocusKeepAlive();
         });
 
         // Seek backward (previous track button = -15s)
@@ -691,6 +733,7 @@
         // Cache DOM elements
         elements.tilesContainer = document.getElementById('tilesContainer');
         elements.audioPlayer = document.getElementById('audioPlayer');
+        elements.silencePlayer = document.getElementById('silencePlayer');
         elements.playPause = document.getElementById('playPause');
         elements.playPauseIcon = document.getElementById('playPauseIcon');
         elements.skipBack = document.getElementById('skipBack');
