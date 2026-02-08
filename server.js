@@ -33,7 +33,7 @@ function fetchRss(reqHeaders, callback) {
         path: '/api/rss/pod/3795',
         method: 'GET',
         headers: {
-            'User-Agent': 'EkotWebApp/1.1.0'
+            'User-Agent': 'EkotWebApp/1.3.0'
         }
     };
 

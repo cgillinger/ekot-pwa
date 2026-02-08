@@ -10,6 +10,8 @@
     --color-text: #ffffff;
     --color-text-muted: #aaaaaa;
     --color-latest: #ff9500;
+    --color-latest-border: #ffd600;
+    --color-playing-border: #4fc3f7;
     --border-radius: 12px;
     --tile-gap: 8px;
     --safe-area-top: env(safe-area-inset-top, 0px);
@@ -132,6 +134,11 @@ body {
     transform: none;
 }
 
+/* Latest broadcast - prominent yellow border */
+.tile.latest {
+    box-shadow: 0 0 0 3px var(--color-latest-border), 0 0 14px rgba(255, 214, 0, 0.3);
+}
+
 /* Latest badge */
 .tile.latest::before {
     content: 'SENAST';
@@ -162,6 +169,26 @@ body {
 }
 
 @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Currently playing (non-latest) - light blue border */
+.tile.playing:not(.latest) {
+    box-shadow: 0 0 0 3px var(--color-playing-border), 0 0 12px rgba(79, 195, 247, 0.35);
+}
+
+/* Paused tile - subtle pulse animation */
+.tile.paused {
+    animation: tilePausePulse 2s ease-in-out infinite;
+}
+
+.tile.paused::after {
+    animation: none;
+    opacity: 0.5;
+}
+
+@keyframes tilePausePulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }

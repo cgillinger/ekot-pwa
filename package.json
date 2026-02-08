@@ -1,6 +1,6 @@
 {
     "name": "ekot-webapp",
-    "version": "1.0.0",
+    "version": "1.3.0",
     "description": "Minimal web app for Sveriges Radio Ekot broadcasts",
     "main": "server.js",
     "scripts": {

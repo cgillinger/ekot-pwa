@@ -7,7 +7,7 @@
     'use strict';
 
     // App version - bump this to force cache refresh
-    const VERSION = '1.2.1';
+    const VERSION = '1.3.0';
     console.log(`Ekot Web App v${VERSION}`);
 
     // Configuration
@@ -40,7 +40,8 @@
         pollTimer: null,
         lastEtag: null,
         lastModified: null,
-        audioFocusTimer: null   // Timer for releasing audio focus after pause
+        audioFocusTimer: null,  // Timer for releasing audio focus after pause
+        isPaused: false         // Whether playback is currently paused
     };
 
     // DOM Elements
@@ -391,6 +392,7 @@
             tile.classList.toggle('inactive', !isActive);
             tile.classList.toggle('latest', isLatest);
             tile.classList.toggle('playing', isPlaying);
+            tile.classList.toggle('paused', isPlaying && state.isPaused);
             tile.dataset.slot = slot;
 
             const icon = document.createElement('img');
@@ -445,6 +447,7 @@
 
         // Update state
         state.currentSlot = slot;
+        state.isPaused = false;
 
         // Set audio source and play (must be synchronous with user gesture)
         elements.audioPlayer.src = broadcast.audioUrl;
@@ -469,6 +472,7 @@
         elements.audioPlayer.pause();
         elements.audioPlayer.src = '';
         state.currentSlot = null;
+        state.isPaused = false;
         elements.nowPlaying.textContent = 'Ingen uppspelning';
         elements.playPauseIcon.textContent = '\u25B6';
         elements.currentTime.textContent = '0:00';
@@ -582,10 +586,16 @@
     function setupAudioListeners() {
         elements.audioPlayer.addEventListener('play', () => {
             elements.playPauseIcon.textContent = '\u23F8';
+            state.isPaused = false;
+            renderTiles();
         });
 
         elements.audioPlayer.addEventListener('pause', () => {
             elements.playPauseIcon.textContent = '\u25B6';
+            if (state.currentSlot) {
+                state.isPaused = true;
+                renderTiles();
+            }
         });
 
         elements.audioPlayer.addEventListener('timeupdate', () => {
