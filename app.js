@@ -1,47 +1,43 @@
 /**
- * Ekot Web App
- * Minimal web app for Sveriges Radio Ekot broadcasts
+ * Ekot PWA v2.0.0
+ * Progressive web app for Sveriges Radio Ekot broadcasts
+ * Talks directly to SR's open JSON API — no server proxy needed
  */
 
 (function() {
     'use strict';
 
-    // App version - bump this to force cache refresh
-    const VERSION = '1.3.0';
-    console.log(`Ekot Web App v${VERSION}`);
+    const VERSION = '2.0.0';
+    console.log(`Ekot PWA v${VERSION}`);
 
     // Configuration
     const CONFIG = {
-        RSS_URL: '/api/rss', // Proxied through server to avoid CORS
+        API_URL: 'https://api.sr.se/api/v2/podfiles?programid=4540&format=json&size=20',
         TIMEZONE: 'Europe/Stockholm',
-        // Slots with pollStart = when broadcast ends (earliest availability)
-        // Broadcast lengths vary: 08:00 (5-15min), 12:30 (20-25min), 16:45 (15min), 17:45 (20min)
         SLOTS: [
-            { time: '08:00', pollStart: { hour: 8, minute: 20 } },   // +20min margin
-            { time: '12:30', pollStart: { hour: 13, minute: 0 } },   // +30min margin
-            { time: '16:45', pollStart: { hour: 17, minute: 5 } },   // +20min margin
-            { time: '17:45', pollStart: { hour: 18, minute: 10 } }   // +25min margin
+            { time: '08:00', pollStart: { hour: 8, minute: 20 } },
+            { time: '12:30', pollStart: { hour: 13, minute: 0 } },
+            { time: '16:45', pollStart: { hour: 17, minute: 5 } },
+            { time: '17:45', pollStart: { hour: 18, minute: 10 } }
         ],
         POLL_INTERVALS: {
-            ACTIVE: 60000,      // 1 minute during active window
-            EXTENDED: 300000,   // 5 minutes during extended window
-            IDLE: 1800000       // 30 minutes outside windows
+            ACTIVE: 60000,
+            EXTENDED: 300000,
+            IDLE: 1800000
         },
-        ACTIVE_WINDOW: 10,      // Minutes after pollStart for active polling
-        EXTENDED_WINDOW: 30,    // Minutes after pollStart for extended polling
-        AUDIO_FOCUS_TIMEOUT: 15 * 60 * 1000  // 15 minutes in ms - release audio focus after this
+        ACTIVE_WINDOW: 10,
+        EXTENDED_WINDOW: 30,
+        AUDIO_FOCUS_TIMEOUT: 15 * 60 * 1000
     };
 
     // State
     const state = {
-        broadcasts: {},          // Keyed by slot time
-        currentSlot: null,       // Currently playing slot
-        lastFetchDate: null,     // Last date we fetched for
+        broadcasts: {},
+        currentSlot: null,
+        lastFetchDate: null,
         pollTimer: null,
-        lastEtag: null,
-        lastModified: null,
-        audioFocusTimer: null,  // Timer for releasing audio focus after pause
-        isPaused: false         // Whether playback is currently paused
+        audioFocusTimer: null,
+        isPaused: false
     };
 
     // DOM Elements
@@ -62,32 +58,14 @@
         silencePlayer: null
     };
 
-    /**
-     * Get current date in Stockholm timezone as YYYY-MM-DD
-     */
+    // --- Utility functions ---
+
     function getStockholmDate() {
-        const now = new Date();
-        return now.toLocaleDateString('sv-SE', { timeZone: CONFIG.TIMEZONE });
+        return new Date().toLocaleDateString('sv-SE', { timeZone: CONFIG.TIMEZONE });
     }
 
-    /**
-     * Get current time in Stockholm timezone as HH:MM
-     */
-    function getStockholmTime() {
-        const now = new Date();
-        return now.toLocaleTimeString('sv-SE', {
-            timeZone: CONFIG.TIMEZONE,
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    }
-
-    /**
-     * Get current hour and minute in Stockholm timezone
-     */
     function getStockholmHourMinute() {
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString('sv-SE', {
+        const timeStr = new Date().toLocaleTimeString('sv-SE', {
             timeZone: CONFIG.TIMEZONE,
             hour: '2-digit',
             minute: '2-digit',
@@ -97,24 +75,6 @@
         return { hour, minute };
     }
 
-    /**
-     * Parse RSS pubDate to Stockholm date string
-     */
-    function parseRssDateToStockholm(pubDateStr) {
-        const date = new Date(pubDateStr);
-        return date.toLocaleDateString('sv-SE', { timeZone: CONFIG.TIMEZONE });
-    }
-
-    /**
-     * Parse RSS pubDate to timestamp
-     */
-    function parseRssDateToTimestamp(pubDateStr) {
-        return new Date(pubDateStr).getTime();
-    }
-
-    /**
-     * Extract time slot from title (e.g., "Ekot 08:00" -> "08:00")
-     */
     function extractSlotFromTitle(title) {
         for (const slot of CONFIG.SLOTS) {
             if (title.includes(slot.time)) {
@@ -124,23 +84,6 @@
         return null;
     }
 
-    /**
-     * Get slot times as simple array
-     */
-    function getSlotTimes() {
-        return CONFIG.SLOTS.map(s => s.time);
-    }
-
-    /**
-     * Get slot config by time
-     */
-    function getSlotConfig(time) {
-        return CONFIG.SLOTS.find(s => s.time === time);
-    }
-
-    /**
-     * Format seconds to MM:SS
-     */
     function formatTime(seconds) {
         if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
         const mins = Math.floor(seconds / 60);
@@ -148,22 +91,97 @@
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
-    /**
-     * Show status message
-     */
     function showStatus(message, isError = false, duration = 3000) {
         elements.statusMessage.textContent = message;
         elements.statusMessage.classList.toggle('error', isError);
         elements.statusMessage.classList.add('visible');
-
         setTimeout(() => {
             elements.statusMessage.classList.remove('visible');
         }, duration);
     }
 
+    // --- Date parsing for SR JSON API ---
+
     /**
-     * Reset state for new day
+     * Parse SR API date format "/Date(1770620400000)/" to Date object
      */
+    function parseSrDate(srDateStr) {
+        const match = srDateStr.match(/\/Date\((\d+)\)\//);
+        if (match) {
+            return new Date(parseInt(match[1], 10));
+        }
+        return new Date(srDateStr);
+    }
+
+    function srDateToStockholmDate(srDateStr) {
+        const date = parseSrDate(srDateStr);
+        return date.toLocaleDateString('sv-SE', { timeZone: CONFIG.TIMEZONE });
+    }
+
+    // --- Data fetching ---
+
+    /**
+     * Parse JSON response from SR API into broadcasts object
+     */
+    function parseApiResponse(data) {
+        const todayStr = getStockholmDate();
+        const broadcasts = {};
+
+        if (!data.podfiles) return broadcasts;
+
+        for (const podfile of data.podfiles) {
+            const title = podfile.title || '';
+            const publishDate = podfile.publishdateutc || '';
+            const audioUrl = podfile.url || '';
+
+            // Only process items from today
+            const itemDate = srDateToStockholmDate(publishDate);
+            if (itemDate !== todayStr) continue;
+
+            // Extract slot from title
+            const slot = extractSlotFromTitle(title);
+            if (!slot) continue;
+
+            broadcasts[slot] = {
+                title,
+                pubDate: publishDate,
+                timestamp: parseSrDate(publishDate).getTime(),
+                audioUrl,
+                slot
+            };
+        }
+
+        return broadcasts;
+    }
+
+    /**
+     * Fetch broadcasts from SR JSON API
+     */
+    async function fetchBroadcasts(forceRefresh = false) {
+        try {
+            const url = forceRefresh
+                ? `${CONFIG.API_URL}&_=${Date.now()}`
+                : CONFIG.API_URL;
+
+            const response = await fetch(url, {
+                cache: forceRefresh ? 'no-store' : 'default'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            return parseApiResponse(data);
+        } catch (error) {
+            console.error('Failed to fetch broadcasts:', error);
+            showStatus('Kunde inte hämta sändningar', true);
+            return null;
+        }
+    }
+
+    // --- Broadcast state management ---
+
     function resetForNewDay() {
         state.broadcasts = {};
         state.currentSlot = null;
@@ -172,9 +190,6 @@
         renderTiles();
     }
 
-    /**
-     * Check if we need to reset for a new day
-     */
     function checkDayChange() {
         const currentDate = getStockholmDate();
         if (state.lastFetchDate && state.lastFetchDate !== currentDate) {
@@ -184,133 +199,31 @@
         return false;
     }
 
-    /**
-     * Parse RSS XML and extract broadcasts
-     */
-    function parseRss(xmlText) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(xmlText, 'application/xml');
-
-        const parseError = doc.querySelector('parsererror');
-        if (parseError) {
-            throw new Error('RSS parse error');
-        }
-
-        const items = doc.querySelectorAll('item');
-        const todayStr = getStockholmDate();
-        const broadcasts = {};
-
-        items.forEach(item => {
-            const title = item.querySelector('title')?.textContent || '';
-            const pubDate = item.querySelector('pubDate')?.textContent || '';
-            const enclosure = item.querySelector('enclosure');
-            const audioUrl = enclosure?.getAttribute('url') || '';
-
-            // Only process items from today
-            const itemDate = parseRssDateToStockholm(pubDate);
-            if (itemDate !== todayStr) return;
-
-            // Extract slot from title
-            const slot = extractSlotFromTitle(title);
-            if (!slot) return;
-
-            // Store broadcast info
-            broadcasts[slot] = {
-                title,
-                pubDate,
-                timestamp: parseRssDateToTimestamp(pubDate),
-                audioUrl,
-                slot
-            };
-        });
-
-        return broadcasts;
-    }
-
-    /**
-     * Fetch RSS feed
-     */
-    async function fetchRss(forceRefresh = false) {
-        try {
-            const headers = {};
-
-            // Use conditional headers only if not forcing refresh
-            if (!forceRefresh) {
-                if (state.lastEtag) {
-                    headers['If-None-Match'] = state.lastEtag;
-                }
-                if (state.lastModified) {
-                    headers['If-Modified-Since'] = state.lastModified;
-                }
-            }
-
-            // Add cache-busting for first load to avoid browser cache issues
-            const url = forceRefresh
-                ? `${CONFIG.RSS_URL}?_=${Date.now()}`
-                : CONFIG.RSS_URL;
-
-            const response = await fetch(url, {
-                headers,
-                cache: forceRefresh ? 'no-store' : 'default'
-            });
-
-            // Handle 304 Not Modified
-            if (response.status === 304) {
-                return null;
-            }
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            // Store cache headers
-            state.lastEtag = response.headers.get('ETag');
-            state.lastModified = response.headers.get('Last-Modified');
-
-            const xmlText = await response.text();
-            return parseRss(xmlText);
-        } catch (error) {
-            console.error('Failed to fetch RSS:', error);
-            showStatus('Kunde inte hämta sändningar', true);
-            return null;
-        }
-    }
-
-    /**
-     * Update broadcasts and render
-     */
     async function updateBroadcasts(forceRefresh = false) {
         checkDayChange();
 
-        const newBroadcasts = await fetchRss(forceRefresh);
+        const newBroadcasts = await fetchBroadcasts(forceRefresh);
         if (newBroadcasts) {
-            // Merge new broadcasts with existing
             Object.assign(state.broadcasts, newBroadcasts);
             state.lastFetchDate = getStockholmDate();
             renderTiles();
         }
     }
 
-    /**
-     * Calculate optimal poll interval based on current time
-     * Polling starts AFTER broadcast ends (pollStart), not when it begins
-     */
+    // --- Polling ---
+
     function calculatePollInterval() {
         const { hour, minute } = getStockholmHourMinute();
         const currentMinutes = hour * 60 + minute;
 
-        // Check each slot
         for (const slot of CONFIG.SLOTS) {
             const pollStartMinutes = slot.pollStart.hour * 60 + slot.pollStart.minute;
             const diff = currentMinutes - pollStartMinutes;
 
-            // If broadcast for this slot doesn't exist yet
             if (!state.broadcasts[slot.time]) {
-                // Active window: pollStart to pollStart+10
                 if (diff >= 0 && diff <= CONFIG.ACTIVE_WINDOW) {
                     return CONFIG.POLL_INTERVALS.ACTIVE;
                 }
-                // Extended window: pollStart+10 to pollStart+30
                 if (diff > CONFIG.ACTIVE_WINDOW && diff <= CONFIG.EXTENDED_WINDOW) {
                     return CONFIG.POLL_INTERVALS.EXTENDED;
                 }
@@ -320,9 +233,6 @@
         return CONFIG.POLL_INTERVALS.IDLE;
     }
 
-    /**
-     * Schedule next poll
-     */
     function schedulePoll() {
         if (state.pollTimer) {
             clearTimeout(state.pollTimer);
@@ -335,9 +245,8 @@
         }, interval);
     }
 
-    /**
-     * Find the latest broadcast among available slots
-     */
+    // --- Broadcast helpers ---
+
     function findLatestBroadcast() {
         let latest = null;
         let latestTimestamp = 0;
@@ -353,12 +262,9 @@
         return latest;
     }
 
-    /**
-     * Sort slots with latest first
-     */
     function getSortedSlots() {
         const latestSlot = findLatestBroadcast();
-        const slotTimes = getSlotTimes();
+        const slotTimes = CONFIG.SLOTS.map(s => s.time);
 
         if (latestSlot) {
             const index = slotTimes.indexOf(latestSlot);
@@ -371,9 +277,8 @@
         return slotTimes;
     }
 
-    /**
-     * Render tiles
-     */
+    // --- Rendering ---
+
     function renderTiles() {
         const latestSlot = findLatestBroadcast();
         const sortedSlots = getSortedSlots();
@@ -414,27 +319,21 @@
             elements.tilesContainer.appendChild(tile);
         });
 
-        // Update date display
         updateDateDisplay();
     }
 
-    /**
-     * Update date display
-     */
     function updateDateDisplay() {
-        const date = new Date();
         const options = {
             weekday: 'long',
             day: 'numeric',
             month: 'long',
             timeZone: CONFIG.TIMEZONE
         };
-        elements.dateDisplay.textContent = date.toLocaleDateString('sv-SE', options);
+        elements.dateDisplay.textContent = new Date().toLocaleDateString('sv-SE', options);
     }
 
-    /**
-     * Play broadcast
-     */
+    // --- Audio playback ---
+
     function playBroadcast(slot) {
         const broadcast = state.broadcasts[slot];
         if (!broadcast || !broadcast.audioUrl) {
@@ -442,31 +341,22 @@
             return;
         }
 
-        // Stop any audio focus keep-alive from a previous pause
         stopAudioFocusKeepAlive();
 
-        // Update state
         state.currentSlot = slot;
         state.isPaused = false;
 
-        // Set audio source and play (must be synchronous with user gesture)
         elements.audioPlayer.src = broadcast.audioUrl;
         elements.audioPlayer.play().catch(error => {
             console.error('Playback error:', error);
             showStatus('Kunde inte spela upp ljudet', true);
         });
 
-        // Update Media Session metadata for lock screen / headphone controls
         updateMediaSessionMetadata(slot);
-
-        // Update UI
         elements.nowPlaying.textContent = `Ekot ${slot}`;
         renderTiles();
     }
 
-    /**
-     * Stop playback
-     */
     function stopPlayback() {
         stopAudioFocusKeepAlive();
         elements.audioPlayer.pause();
@@ -481,10 +371,6 @@
         renderTiles();
     }
 
-    /**
-     * Start silent audio to keep audio focus while paused.
-     * Automatically releases after CONFIG.AUDIO_FOCUS_TIMEOUT.
-     */
     function startAudioFocusKeepAlive() {
         stopAudioFocusKeepAlive();
 
@@ -500,9 +386,6 @@
         }, CONFIG.AUDIO_FOCUS_TIMEOUT);
     }
 
-    /**
-     * Stop silent audio and clear the focus timeout
-     */
     function stopAudioFocusKeepAlive() {
         if (state.audioFocusTimer) {
             clearTimeout(state.audioFocusTimer);
@@ -512,12 +395,8 @@
         elements.silencePlayer.src = '';
     }
 
-    /**
-     * Toggle play/pause
-     */
     function togglePlayPause() {
         if (!elements.audioPlayer.src) {
-            // If nothing loaded, play the latest broadcast
             const latestSlot = findLatestBroadcast();
             if (latestSlot) {
                 playBroadcast(latestSlot);
@@ -539,9 +418,6 @@
         }
     }
 
-    /**
-     * Skip time
-     */
     function skipTime(seconds) {
         if (elements.audioPlayer.src) {
             elements.audioPlayer.currentTime = Math.max(
@@ -554,20 +430,13 @@
         }
     }
 
-    /**
-     * Seek to position
-     */
     function seekTo(event) {
         if (!elements.audioPlayer.src || !elements.audioPlayer.duration) return;
-
         const rect = elements.progressBar.getBoundingClientRect();
         const percent = (event.clientX - rect.left) / rect.width;
         elements.audioPlayer.currentTime = percent * elements.audioPlayer.duration;
     }
 
-    /**
-     * Update progress display
-     */
     function updateProgress() {
         const current = elements.audioPlayer.currentTime || 0;
         const total = elements.audioPlayer.duration || 0;
@@ -580,9 +449,8 @@
         }
     }
 
-    /**
-     * Setup audio event listeners
-     */
+    // --- Event listeners ---
+
     function setupAudioListeners() {
         elements.audioPlayer.addEventListener('play', () => {
             elements.playPauseIcon.textContent = '\u23F8';
@@ -621,9 +489,6 @@
         });
     }
 
-    /**
-     * Setup control listeners
-     */
     function setupControlListeners() {
         elements.playPause.addEventListener('click', togglePlayPause);
         elements.skipBack.addEventListener('click', () => skipTime(-15));
@@ -631,16 +496,11 @@
         elements.progressBar.addEventListener('click', seekTo);
     }
 
-    /**
-     * Setup Media Session API for headphone/lock screen controls
-     */
-    function setupMediaSession() {
-        if (!('mediaSession' in navigator)) {
-            console.log('Media Session API not supported');
-            return;
-        }
+    // --- Media Session API ---
 
-        // Play/Pause handlers
+    function setupMediaSession() {
+        if (!('mediaSession' in navigator)) return;
+
         navigator.mediaSession.setActionHandler('play', () => {
             stopAudioFocusKeepAlive();
             elements.audioPlayer.play();
@@ -651,51 +511,31 @@
             startAudioFocusKeepAlive();
         });
 
-        // Seek backward (previous track button = -15s)
-        navigator.mediaSession.setActionHandler('previoustrack', () => {
-            skipTime(-15);
-        });
+        navigator.mediaSession.setActionHandler('previoustrack', () => skipTime(-15));
+        navigator.mediaSession.setActionHandler('nexttrack', () => skipTime(15));
 
-        // Seek forward (next track button = +15s)
-        navigator.mediaSession.setActionHandler('nexttrack', () => {
-            skipTime(15);
-        });
-
-        // Explicit seek handlers (for scrubbing on lock screen)
         navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-            const skipSeconds = details.seekOffset || 15;
-            skipTime(-skipSeconds);
+            skipTime(-(details.seekOffset || 15));
         });
 
         navigator.mediaSession.setActionHandler('seekforward', (details) => {
-            const skipSeconds = details.seekOffset || 15;
-            skipTime(skipSeconds);
+            skipTime(details.seekOffset || 15);
         });
 
-        // Seek to specific position
         navigator.mediaSession.setActionHandler('seekto', (details) => {
             if (details.seekTime !== undefined && elements.audioPlayer.duration) {
                 elements.audioPlayer.currentTime = details.seekTime;
             }
         });
 
-        // Stop handler
-        navigator.mediaSession.setActionHandler('stop', () => {
-            stopPlayback();
-        });
+        navigator.mediaSession.setActionHandler('stop', () => stopPlayback());
     }
 
-    /**
-     * Update Media Session metadata for current broadcast
-     */
     function updateMediaSessionMetadata(slot) {
         if (!('mediaSession' in navigator)) return;
 
-        const broadcast = state.broadcasts[slot];
-        const title = broadcast ? `Ekot ${slot}` : 'Ekot';
-
         navigator.mediaSession.metadata = new MediaMetadata({
-            title: title,
+            title: `Ekot ${slot}`,
             artist: 'Sveriges Radio',
             album: 'Ekot',
             artwork: [
@@ -706,9 +546,6 @@
         });
     }
 
-    /**
-     * Update Media Session playback position state
-     */
     function updateMediaSessionPosition() {
         if (!('mediaSession' in navigator)) return;
         if (!elements.audioPlayer.duration) return;
@@ -724,11 +561,9 @@
         }
     }
 
-    /**
-     * Check for midnight reset
-     */
+    // --- Midnight reset ---
+
     function setupMidnightCheck() {
-        // Check every minute for day change
         setInterval(() => {
             if (checkDayChange()) {
                 updateBroadcasts();
@@ -736,9 +571,8 @@
         }, 60000);
     }
 
-    /**
-     * Initialize app
-     */
+    // --- Initialize ---
+
     async function init() {
         // Cache DOM elements
         elements.tilesContainer = document.getElementById('tilesContainer');
@@ -756,26 +590,20 @@
         elements.statusMessage = document.getElementById('statusMessage');
         elements.dateDisplay = document.getElementById('dateDisplay');
 
-        // Set initial date
         state.lastFetchDate = getStockholmDate();
 
-        // Setup listeners
         setupAudioListeners();
         setupControlListeners();
         setupMediaSession();
         setupMidnightCheck();
 
-        // Initial render (empty state)
         renderTiles();
 
-        // Fetch initial data with cache-busting to ensure fresh data
         await updateBroadcasts(true);
 
-        // Start polling
         schedulePoll();
     }
 
-    // Start app when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
