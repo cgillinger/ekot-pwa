@@ -1,17 +1,17 @@
 /* Ekot Web App - Mobile-first Styles */
 
 :root {
-    --color-primary: #0066b3;
-    --color-primary-dark: #004d87;
-    --color-active: #0066b3;
-    --color-inactive: #636363;
-    --color-background: #1a1a1a;
-    --color-surface: #2a2a2a;
+    --color-primary: #0A2D6F;
+    --color-primary-dark: #2B374F;
+    --color-active: #0A2D6F;
+    --color-inactive: #536482;
+    --color-background: #363330;
+    --color-surface: #2B374F;
     --color-text: #ffffff;
-    --color-text-muted: #aaaaaa;
+    --color-text-muted: #9AA1AE;
     --color-latest: #ff9500;
     --color-latest-border: #ffd600;
-    --color-playing-border: #4fc3f7;
+    --color-playing-border: #738096;
     --border-radius: 12px;
     --tile-gap: 8px;
     --safe-area-top: env(safe-area-inset-top, 0px);
@@ -120,7 +120,7 @@ body {
 /* Active tile */
 .tile.active {
     background-color: var(--color-active);
-    box-shadow: 0 2px 8px rgba(0, 102, 179, 0.4);
+    box-shadow: 0 2px 8px rgba(10, 45, 111, 0.4);
 }
 
 /* Inactive tile */
