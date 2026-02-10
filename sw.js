@@ -1,9 +1,9 @@
 /**
- * Ekot PWA Service Worker v2.1.3
+ * Ekot PWA Service Worker v2.1.4
  * Caches app shell for offline use, network-first for API data
  */
 
-const CACHE_NAME = 'ekot-pwa-v2.1.3';
+const CACHE_NAME = 'ekot-pwa-v2.1.4';
 
 const APP_SHELL = [
     './',
@@ -39,7 +39,7 @@ self.addEventListener('install', event => {
     );
 });
 
-// Activate: clean up old caches
+// Activate: clean up old caches, reload clients running old versions
 self.addEventListener('activate', event => {
     event.waitUntil(
         caches.keys().then(keys =>
@@ -48,6 +48,13 @@ self.addEventListener('activate', event => {
                     .map(key => caches.delete(key))
             )
         ).then(() => self.clients.claim())
+         .then(() => {
+            // Notify all open clients to reload (catches pre-2.1.3 clients
+            // that lack the controllerchange listener)
+            self.clients.matchAll({ type: 'window' }).then(clients => {
+                clients.forEach(client => client.navigate(client.url));
+            });
+        })
     );
 });
 
