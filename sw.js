@@ -1,9 +1,9 @@
 /**
- * Ekot PWA Service Worker v2.1.1
+ * Ekot PWA Service Worker v2.1.2
  * Caches app shell for offline use, network-first for API data
  */
 
-const CACHE_NAME = 'ekot-pwa-v2.1.1';
+const CACHE_NAME = 'ekot-pwa-v2.1.2';
 
 const APP_SHELL = [
     './',
@@ -27,8 +27,7 @@ const APP_SHELL = [
     './assets/icon-384x384.png',
     './assets/icon-512x512.png',
     './assets/icon-apple-touch-icon.png',
-    './assets/icon-gray-96x96.png',
-    './assets/icon-gray-192x192.png'
+    './assets/icon-tile-384x384.png'
 ];
 
 // Install: cache app shell

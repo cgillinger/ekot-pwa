@@ -1,5 +1,5 @@
 /**
- * Ekot PWA v2.1.1
+ * Ekot PWA v2.1.2
  * Progressive web app for Sveriges Radio Ekot broadcasts
  * Talks directly to SR's open JSON API — no server proxy needed
  */
@@ -7,7 +7,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '2.1.1';
+    const VERSION = '2.1.2';
     console.log(`Ekot PWA v${VERSION}`);
 
     // Configuration
@@ -302,7 +302,7 @@
 
             const icon = document.createElement('img');
             icon.className = 'tile-icon';
-            icon.src = isActive ? 'assets/icon-96x96.png' : 'assets/icon-gray-96x96.png';
+            icon.src = 'assets/icon-tile-384x384.png';
             icon.alt = 'Ekot';
 
             const timeLabel = document.createElement('span');
