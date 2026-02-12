@@ -266,16 +266,24 @@
         const latestSlot = findLatestBroadcast();
         const slotTimes = CONFIG.SLOTS.map(s => s.time);
 
+        // Counter-clockwise ring layout:
+        //   TL | TR      ring[0] | ring[3]
+        //   BL | BR  =>  ring[1] | ring[2]
+        // When a new broadcast arrives, the ring rotates clockwise
+        // so the latest always lands in top-left.
+
+        // Build the ring in chronological order starting from latest
+        let ring;
         if (latestSlot) {
             const index = slotTimes.indexOf(latestSlot);
-            if (index > -1) {
-                // Rotate: start from latest, continue in circular order
-                const rotated = slotTimes.slice(index).concat(slotTimes.slice(0, index));
-                return rotated;
-            }
+            ring = slotTimes.slice(index).concat(slotTimes.slice(0, index));
+        } else {
+            ring = slotTimes;
         }
 
-        return slotTimes;
+        // Map ring positions to grid order (left-to-right, top-to-bottom)
+        // ring[0]=TL, ring[1]=BL, ring[2]=BR, ring[3]=TR
+        return [ring[0], ring[3], ring[1], ring[2]];
     }
 
     // --- Rendering ---
