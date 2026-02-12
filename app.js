@@ -269,8 +269,9 @@
         if (latestSlot) {
             const index = slotTimes.indexOf(latestSlot);
             if (index > -1) {
-                slotTimes.splice(index, 1);
-                slotTimes.unshift(latestSlot);
+                // Rotate: start from latest, continue in circular order
+                const rotated = slotTimes.slice(index).concat(slotTimes.slice(0, index));
+                return rotated;
             }
         }
 

@@ -176,9 +176,9 @@ body {
     50% { opacity: 0.5; }
 }
 
-/* Currently playing (non-latest) - light blue border */
+/* Currently playing (non-latest) */
 .tile.playing:not(.latest) {
-    box-shadow: 0 0 0 3px var(--color-playing-border), 0 0 12px rgba(79, 195, 247, 0.35);
+    box-shadow: 0 0 0 3px var(--color-playing-border), 0 0 12px rgba(115, 128, 150, 0.35);
 }
 
 /* Paused tile - subtle pulse animation */
@@ -198,10 +198,9 @@ body {
 
 /* Tile icon */
 .tile-icon {
-    width: 55%;
-    height: 55%;
+    width: 70%;
+    height: 70%;
     object-fit: contain;
-    border-radius: 6px;
 }
 
 /* Tile time label */
@@ -401,8 +400,8 @@ body {
     }
 
     .tile-icon {
-        width: 50%;
-        height: 50%;
+        width: 60%;
+        height: 60%;
     }
 
     .player-container {
@@ -495,7 +494,7 @@ body {
     }
 
     .tile-icon {
-        width: 60%;
-        height: 60%;
+        width: 75%;
+        height: 75%;
     }
 }
