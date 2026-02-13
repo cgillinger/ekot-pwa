@@ -299,7 +299,7 @@ body {
 .progress-bar {
     flex: 1;
     height: 4px;
-    background-color: var(--color-primary);
+    background-color: #90CAF9;
     border-radius: 2px;
     cursor: pointer;
     position: relative;
