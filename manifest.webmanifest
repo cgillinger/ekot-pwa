@@ -1,7 +1,7 @@
 {
     "name": "Ekot - Sveriges Radio",
     "short_name": "Ekot",
-    "version": "2.1.7",
+    "version": "2.1.8",
     "description": "Lyssna på Ekots nyhetssändningar — fungerar offline",
     "start_url": "./",
     "scope": "./",
