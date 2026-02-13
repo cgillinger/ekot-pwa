@@ -299,14 +299,24 @@ body {
 .progress-bar {
     flex: 1;
     height: 4px;
-    background-color: #90CAF9;
     border-radius: 2px;
     cursor: pointer;
     position: relative;
     /* Larger touch target via padding, visually still 4px */
     padding: 14px 0;
-    background-clip: content-box;
     touch-action: none;
+}
+
+/* Unplayed track — rendered as pseudo-element for reliable visibility */
+.progress-bar::before {
+    content: '';
+    position: absolute;
+    top: 14px;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background-color: #90CAF9;
+    border-radius: 2px;
 }
 
 .progress-fill {
@@ -317,6 +327,7 @@ body {
     background-color: var(--color-latest-border);
     width: 0%;
     border-radius: 2px;
+    z-index: 1;
     transition: width 0.1s linear;
 }
 
