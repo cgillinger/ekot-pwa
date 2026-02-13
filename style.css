@@ -314,7 +314,7 @@ body {
     top: 14px;
     left: 0;
     height: 4px;
-    background-color: var(--color-primary);
+    background-color: var(--color-latest-border);
     width: 0%;
     border-radius: 2px;
     transition: width 0.1s linear;
@@ -334,14 +334,9 @@ body {
     border-radius: 50%;
     background-color: #fff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-    opacity: 0;
-    transition: opacity 0.15s ease, transform 0.15s ease;
-    pointer-events: none;
-}
-
-.progress-bar:hover .progress-thumb,
-.progress-bar.seeking .progress-thumb {
     opacity: 1;
+    transition: transform 0.15s ease;
+    pointer-events: none;
 }
 
 .progress-bar.seeking .progress-thumb {
