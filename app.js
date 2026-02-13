@@ -1,5 +1,5 @@
 /**
- * Ekot PWA v2.1.5
+ * Ekot PWA v2.1.6
  * Progressive web app for Sveriges Radio Ekot broadcasts
  * Talks directly to SR's open JSON API — no server proxy needed
  */
@@ -7,7 +7,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '2.1.5';
+    const VERSION = '2.1.6';
     console.log(`Ekot PWA v${VERSION}`);
 
     // Configuration
@@ -439,10 +439,50 @@
         }
     }
 
+    // --- Seekbar drag ---
+
+    const seekState = { dragging: false };
+
+    function getSeekPercent(clientX) {
+        const rect = elements.progressBar.getBoundingClientRect();
+        return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    }
+
     function seekTo(event) {
         if (!elements.audioPlayer.src || !elements.audioPlayer.duration) return;
-        const rect = elements.progressBar.getBoundingClientRect();
-        const percent = (event.clientX - rect.left) / rect.width;
+        const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+        const percent = getSeekPercent(clientX);
+        elements.audioPlayer.currentTime = percent * elements.audioPlayer.duration;
+    }
+
+    function onSeekStart(event) {
+        if (!elements.audioPlayer.src || !elements.audioPlayer.duration) return;
+        seekState.dragging = true;
+        elements.progressBar.classList.add('seeking');
+        onSeekMove(event);
+    }
+
+    function onSeekMove(event) {
+        if (!seekState.dragging) return;
+        event.preventDefault();
+        const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+        const percent = getSeekPercent(clientX);
+        // Update visual immediately during drag (no audio seek yet for smoothness)
+        elements.progressFill.style.width = `${percent * 100}%`;
+        const total = elements.audioPlayer.duration || 0;
+        elements.currentTime.textContent = formatTime(percent * total);
+    }
+
+    function onSeekEnd(event) {
+        if (!seekState.dragging) return;
+        seekState.dragging = false;
+        elements.progressBar.classList.remove('seeking');
+        if (!elements.audioPlayer.src || !elements.audioPlayer.duration) return;
+        // Determine final position from the last known position
+        const clientX = event.changedTouches
+            ? event.changedTouches[0].clientX
+            : event.clientX;
+        const percent = getSeekPercent(clientX);
         elements.audioPlayer.currentTime = percent * elements.audioPlayer.duration;
     }
 
@@ -502,7 +542,16 @@
         elements.playPause.addEventListener('click', togglePlayPause);
         elements.skipBack.addEventListener('click', () => skipTime(-15));
         elements.skipForward.addEventListener('click', () => skipTime(15));
-        elements.progressBar.addEventListener('click', seekTo);
+
+        // Seekbar: mouse drag
+        elements.progressBar.addEventListener('mousedown', onSeekStart);
+        document.addEventListener('mousemove', onSeekMove);
+        document.addEventListener('mouseup', onSeekEnd);
+
+        // Seekbar: touch drag
+        elements.progressBar.addEventListener('touchstart', onSeekStart, { passive: false });
+        document.addEventListener('touchmove', onSeekMove, { passive: false });
+        document.addEventListener('touchend', onSeekEnd);
     }
 
     // --- Media Session API ---

@@ -301,15 +301,51 @@ body {
     height: 4px;
     background-color: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
-    overflow: hidden;
     cursor: pointer;
+    position: relative;
+    /* Larger touch target via padding, visually still 4px */
+    padding: 14px 0;
+    background-clip: content-box;
+    touch-action: none;
 }
 
 .progress-fill {
-    height: 100%;
+    position: absolute;
+    top: 14px;
+    left: 0;
+    height: 4px;
     background-color: var(--color-primary);
     width: 0%;
+    border-radius: 2px;
     transition: width 0.1s linear;
+}
+
+.progress-bar.seeking .progress-fill {
+    transition: none;
+}
+
+.progress-thumb {
+    position: absolute;
+    right: -7px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background-color: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    pointer-events: none;
+}
+
+.progress-bar:hover .progress-thumb,
+.progress-bar.seeking .progress-thumb {
+    opacity: 1;
+}
+
+.progress-bar.seeking .progress-thumb {
+    transform: translateY(-50%) scale(1.2);
 }
 
 /* Status Message */

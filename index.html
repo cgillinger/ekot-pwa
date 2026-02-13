@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
 
     <!-- App Version -->
-    <meta name="version" content="2.1.5">
+    <meta name="version" content="2.1.6">
 
     <!-- PWA Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -29,10 +29,10 @@
     <link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180x180.png">
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.webmanifest?v=2.1.5">
+    <link rel="manifest" href="manifest.webmanifest?v=2.1.6">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=2.1.5">
+    <link rel="stylesheet" href="style.css?v=2.1.6">
 </head>
 <body>
     <div class="app-container">
@@ -63,7 +63,9 @@
             <div class="progress-container">
                 <span class="time-display" id="currentTime">0:00</span>
                 <div class="progress-bar" id="progressBar">
-                    <div class="progress-fill" id="progressFill"></div>
+                    <div class="progress-fill" id="progressFill">
+                        <div class="progress-thumb" id="progressThumb"></div>
+                    </div>
                 </div>
                 <span class="time-display" id="duration">0:00</span>
             </div>
@@ -82,7 +84,7 @@
         <audio id="silencePlayer" playsinline preload="none" loop></audio>
     </div>
 
-    <script src="app.js?v=2.1.5"></script>
+    <script src="app.js?v=2.1.6"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const hadController = !!navigator.serviceWorker.controller;
