@@ -1,5 +1,5 @@
 /**
- * Ekot PWA v2.2.0
+ * Ekot PWA v2.3.0
  * Progressive web app for Sveriges Radio Ekot broadcasts
  * Talks directly to SR's open JSON API — no server proxy needed
  */
@@ -7,7 +7,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '2.2.0';
+    const VERSION = '2.3.0';
     console.log(`Ekot PWA v${VERSION}`);
 
     // Configuration
@@ -27,7 +27,12 @@
         },
         ACTIVE_WINDOW: 10,
         EXTENDED_WINDOW: 30,
-        AUDIO_FOCUS_TIMEOUT: 15 * 60 * 1000
+        AUDIO_FOCUS_TIMEOUT: 15 * 60 * 1000,
+        LIVE_STREAM_URLS: [
+            'https://live1.sr.se/p1-aac-128',
+            'https://live1.sr.se/p1-mp3-96'
+        ],
+        LIVE_WINDOW_MINUTES: 30
     };
 
     // State
@@ -37,7 +42,8 @@
         lastFetchDate: null,
         pollTimer: null,
         audioFocusTimer: null,
-        isPaused: false
+        isPaused: false,
+        isLive: false
     };
 
     // DOM Elements
@@ -55,7 +61,8 @@
         nowPlaying: null,
         statusMessage: null,
         dateDisplay: null,
-        silencePlayer: null
+        silencePlayer: null,
+        playerContainer: null
     };
 
     // --- Utility functions ---
@@ -204,15 +211,28 @@
 
         const newBroadcasts = await fetchBroadcasts(forceRefresh);
         if (newBroadcasts) {
+            const wasLive = state.isLive;
+            const liveSlot = wasLive ? state.currentSlot : null;
+
             Object.assign(state.broadcasts, newBroadcasts);
             state.lastFetchDate = getStockholmDate();
             renderTiles();
+
+            // Auto-switch from live to podcast when available
+            if (wasLive && liveSlot && newBroadcasts[liveSlot]) {
+                showStatus('Podd tillgänglig — byter från live', false, 4000);
+                playBroadcast(liveSlot);
+            }
         }
     }
 
     // --- Polling ---
 
     function calculatePollInterval() {
+        if (state.isLive) {
+            return CONFIG.POLL_INTERVALS.ACTIVE;
+        }
+
         const { hour, minute } = getStockholmHourMinute();
         const currentMinutes = hour * 60 + minute;
 
@@ -286,6 +306,68 @@
         return [ring[0], ring[3], ring[1], ring[2]];
     }
 
+    // --- Live stream ---
+
+    function isSlotLiveNow(slotTime) {
+        if (state.broadcasts[slotTime]) return false;
+
+        const { hour, minute } = getStockholmHourMinute();
+        const currentMinutes = hour * 60 + minute;
+        const [slotHour, slotMinute] = slotTime.split(':').map(Number);
+        const slotStartMinutes = slotHour * 60 + slotMinute;
+
+        const diff = currentMinutes - slotStartMinutes;
+        return diff >= 0 && diff <= CONFIG.LIVE_WINDOW_MINUTES;
+    }
+
+    function findLiveSlot() {
+        for (const slot of CONFIG.SLOTS) {
+            if (isSlotLiveNow(slot.time)) {
+                return slot.time;
+            }
+        }
+        return null;
+    }
+
+    function updatePlayerForLiveMode(isLive) {
+        elements.playerContainer.classList.toggle('live-mode', isLive);
+        if (isLive) {
+            elements.currentTime.textContent = 'LIVE';
+            elements.duration.textContent = '';
+            elements.progressFill.style.width = '100%';
+        } else {
+            elements.currentTime.textContent = '0:00';
+            elements.duration.textContent = '0:00';
+            elements.progressFill.style.width = '0%';
+        }
+    }
+
+    function playLiveStream(slot) {
+        stopAudioFocusKeepAlive();
+
+        state.currentSlot = slot;
+        state.isLive = true;
+        state.isPaused = false;
+
+        updateMediaSessionMetadata(slot);
+        elements.nowPlaying.textContent = `Ekot ${slot} — LIVE`;
+        updatePlayerForLiveMode(true);
+        renderTiles();
+
+        elements.audioPlayer.src = CONFIG.LIVE_STREAM_URLS[0];
+        elements.audioPlayer.play().catch(() => {
+            // Primary stream failed, try fallback
+            elements.audioPlayer.src = CONFIG.LIVE_STREAM_URLS[1];
+            elements.audioPlayer.play().catch(() => {
+                showStatus('Kunde inte starta liveström', true);
+                stopPlayback();
+            });
+        });
+
+        // Poll actively to detect podcast availability
+        schedulePoll();
+    }
+
     // --- Rendering ---
 
     function renderTiles() {
@@ -296,14 +378,17 @@
 
         sortedSlots.forEach(slot => {
             const broadcast = state.broadcasts[slot];
+            const isLive = (!broadcast && isSlotLiveNow(slot)) ||
+                           (state.isLive && state.currentSlot === slot && !broadcast);
             const isActive = !!broadcast;
             const isLatest = slot === latestSlot;
             const isPlaying = state.currentSlot === slot;
 
             const tile = document.createElement('div');
             tile.className = 'tile';
-            tile.classList.toggle('active', isActive);
-            tile.classList.toggle('inactive', !isActive);
+            tile.classList.toggle('active', isActive || isLive);
+            tile.classList.toggle('inactive', !isActive && !isLive);
+            tile.classList.toggle('live', isLive);
             tile.classList.toggle('latest', isLatest);
             tile.classList.toggle('playing', isPlaying);
             tile.classList.toggle('paused', isPlaying && state.isPaused);
@@ -323,6 +408,8 @@
 
             if (isActive) {
                 tile.addEventListener('click', () => playBroadcast(slot));
+            } else if (isLive) {
+                tile.addEventListener('click', () => playLiveStream(slot));
             }
 
             elements.tilesContainer.appendChild(tile);
@@ -353,7 +440,9 @@
         stopAudioFocusKeepAlive();
 
         state.currentSlot = slot;
+        state.isLive = false;
         state.isPaused = false;
+        updatePlayerForLiveMode(false);
 
         elements.audioPlayer.src = broadcast.audioUrl;
         elements.audioPlayer.play().catch(error => {
@@ -371,7 +460,9 @@
         elements.audioPlayer.pause();
         elements.audioPlayer.src = '';
         state.currentSlot = null;
+        state.isLive = false;
         state.isPaused = false;
+        updatePlayerForLiveMode(false);
         elements.nowPlaying.textContent = 'Ingen uppspelning';
         elements.playPauseIcon.textContent = '\u25B6';
         elements.currentTime.textContent = '0:00';
@@ -406,8 +497,11 @@
 
     function togglePlayPause() {
         if (!elements.audioPlayer.src) {
+            const liveSlot = findLiveSlot();
             const latestSlot = findLatestBroadcast();
-            if (latestSlot) {
+            if (liveSlot) {
+                playLiveStream(liveSlot);
+            } else if (latestSlot) {
                 playBroadcast(latestSlot);
             } else {
                 showStatus('Inga sändningar idag ännu');
@@ -428,6 +522,7 @@
     }
 
     function skipTime(seconds) {
+        if (state.isLive) return;
         if (elements.audioPlayer.src) {
             elements.audioPlayer.currentTime = Math.max(
                 0,
@@ -456,6 +551,7 @@
     }
 
     function onSeekStart(event) {
+        if (state.isLive) return;
         if (!elements.audioPlayer.src || !elements.audioPlayer.duration) return;
         seekState.dragging = true;
         elements.progressBar.classList.add('seeking');
@@ -487,6 +583,7 @@
     }
 
     function updateProgress() {
+        if (state.isLive) return;
         const current = elements.audioPlayer.currentTime || 0;
         const total = elements.audioPlayer.duration || 0;
 
@@ -521,14 +618,18 @@
         });
 
         elements.audioPlayer.addEventListener('loadedmetadata', () => {
-            elements.duration.textContent = formatTime(elements.audioPlayer.duration);
+            if (!state.isLive) {
+                elements.duration.textContent = formatTime(elements.audioPlayer.duration);
+            }
             updateMediaSessionPosition();
         });
 
         elements.audioPlayer.addEventListener('ended', () => {
             state.currentSlot = null;
+            state.isLive = false;
             elements.playPauseIcon.textContent = '\u25B6';
             elements.progressFill.style.width = '0%';
+            updatePlayerForLiveMode(false);
             renderTiles();
         });
 
@@ -581,6 +682,7 @@
         });
 
         navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (state.isLive) return;
             if (details.seekTime !== undefined && elements.audioPlayer.duration) {
                 elements.audioPlayer.currentTime = details.seekTime;
             }
@@ -592,8 +694,9 @@
     function updateMediaSessionMetadata(slot) {
         if (!('mediaSession' in navigator)) return;
 
+        const title = state.isLive ? `Ekot ${slot} — LIVE` : `Ekot ${slot}`;
         navigator.mediaSession.metadata = new MediaMetadata({
-            title: `Ekot ${slot}`,
+            title,
             artist: 'Sveriges Radio',
             album: 'Ekot',
             artwork: [
@@ -606,6 +709,7 @@
 
     function updateMediaSessionPosition() {
         if (!('mediaSession' in navigator)) return;
+        if (state.isLive) return;
         if (!elements.audioPlayer.duration) return;
 
         try {
@@ -626,6 +730,8 @@
             if (checkDayChange()) {
                 updateBroadcasts();
             }
+            // Re-render tiles to update live status indicators
+            renderTiles();
         }, 60000);
     }
 
@@ -647,6 +753,7 @@
         elements.nowPlaying = document.getElementById('nowPlaying');
         elements.statusMessage = document.getElementById('statusMessage');
         elements.dateDisplay = document.getElementById('dateDisplay');
+        elements.playerContainer = document.getElementById('playerContainer');
 
         state.lastFetchDate = getStockholmDate();
 

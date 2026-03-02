@@ -196,6 +196,60 @@ body {
     50% { opacity: 0.5; }
 }
 
+/* Live tile state */
+.tile.live {
+    background-color: var(--color-active);
+    box-shadow: 0 0 0 3px #ff3b30, 0 0 14px rgba(255, 59, 48, 0.3);
+}
+
+.tile.live::before {
+    content: 'LIVE';
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background-color: #ff3b30;
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 3px;
+    z-index: 2;
+    animation: livePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Player in live mode */
+.player-container.live-mode .progress-bar {
+    pointer-events: none;
+}
+
+.player-container.live-mode .progress-bar::before {
+    background-color: #ff3b30;
+}
+
+.player-container.live-mode .progress-fill {
+    background-color: #ff3b30;
+    transition: none;
+}
+
+.player-container.live-mode .progress-thumb {
+    display: none;
+}
+
+.player-container.live-mode .control-btn:not(.play-pause) {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.player-container.live-mode .time-display:first-child {
+    color: #ff3b30;
+    font-weight: 700;
+}
+
 /* Tile icon */
 .tile-icon {
     width: 70%;
