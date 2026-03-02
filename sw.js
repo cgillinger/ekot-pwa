@@ -1,9 +1,9 @@
 /**
- * Ekot PWA Service Worker v2.2.0
+ * Ekot PWA Service Worker v2.3.0
  * Caches app shell for offline use, network-first for API data
  */
 
-const CACHE_NAME = 'ekot-pwa-v2.2.0';
+const CACHE_NAME = 'ekot-pwa-v2.3.0';
 
 const APP_SHELL = [
     './',
@@ -86,6 +86,12 @@ self.addEventListener('fetch', event => {
 
     // SR audio files: network only (too large to cache by default)
     if (url.hostname === 'static-cdn.sr.se') {
+        event.respondWith(fetch(event.request));
+        return;
+    }
+
+    // SR live streams: network only (continuous byte stream)
+    if (url.hostname === 'live1.sr.se') {
         event.respondWith(fetch(event.request));
         return;
     }
