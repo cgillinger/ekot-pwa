@@ -72,9 +72,9 @@ body {
 }
 
 .version {
-    font-size: 0.55rem;
+    font-size: 0.65rem;
     font-weight: 400;
-    opacity: 0.35;
+    opacity: 0.5;
     vertical-align: super;
 }
 
