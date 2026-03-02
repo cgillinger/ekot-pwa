@@ -10,6 +10,13 @@
     const VERSION = '2.3.0';
     console.log(`Ekot PWA v${VERSION}`);
 
+    // Detect native HLS support (Safari on iOS/macOS)
+    const hlsSupport = (function() {
+        const a = document.createElement('audio');
+        return a.canPlayType('application/vnd.apple.mpegurl') !== '' ||
+               a.canPlayType('application/x-mpegURL') !== '';
+    })();
+
     // Configuration
     const CONFIG = {
         API_URL: 'https://api.sr.se/api/v2/podfiles?programid=4540&format=json&size=20',
@@ -29,10 +36,12 @@
         EXTENDED_WINDOW: 30,
         AUDIO_FOCUS_TIMEOUT: 15 * 60 * 1000,
         LIVE_STREAM_URLS: [
+            'https://ljud1-cdn.sr.se/lc/p1.m3u8',
             'https://live1.sr.se/p1-aac-128',
             'https://live1.sr.se/p1-mp3-96'
         ],
-        LIVE_WINDOW_MINUTES: 30
+        LIVE_WINDOW_MINUTES: 30,
+        LIVE_STALL_TIMEOUT: 10000
     };
 
     // State
@@ -43,7 +52,9 @@
         pollTimer: null,
         audioFocusTimer: null,
         isPaused: false,
-        isLive: false
+        isLive: false,
+        liveStreamIndex: 0,
+        liveStallTimer: null
     };
 
     // DOM Elements
@@ -342,30 +353,71 @@
         }
     }
 
+    function clearLiveStallTimer() {
+        if (state.liveStallTimer) {
+            clearTimeout(state.liveStallTimer);
+            state.liveStallTimer = null;
+        }
+    }
+
     function playLiveStream(slot) {
         stopAudioFocusKeepAlive();
+        clearLiveStallTimer();
 
         state.currentSlot = slot;
         state.isLive = true;
         state.isPaused = false;
+        state.liveStreamIndex = 0;
 
         updateMediaSessionMetadata(slot);
         elements.nowPlaying.textContent = `Ekot ${slot} — LIVE`;
         updatePlayerForLiveMode(true);
         renderTiles();
 
-        elements.audioPlayer.src = CONFIG.LIVE_STREAM_URLS[0];
-        elements.audioPlayer.play().catch(() => {
-            // Primary stream failed, try fallback
-            elements.audioPlayer.src = CONFIG.LIVE_STREAM_URLS[1];
-            elements.audioPlayer.play().catch(() => {
-                showStatus('Kunde inte starta liveström', true);
-                stopPlayback();
-            });
-        });
+        tryNextLiveStream();
 
         // Poll actively to detect podcast availability
         schedulePoll();
+    }
+
+    function tryNextLiveStream() {
+        clearLiveStallTimer();
+
+        if (state.liveStreamIndex >= CONFIG.LIVE_STREAM_URLS.length) {
+            showStatus('Kunde inte starta liveström', true);
+            stopPlayback();
+            return;
+        }
+
+        const streamUrl = CONFIG.LIVE_STREAM_URLS[state.liveStreamIndex];
+
+        // Skip HLS if browser doesn't support it natively (Safari only)
+        if (streamUrl.endsWith('.m3u8') && !hlsSupport) {
+            state.liveStreamIndex++;
+            tryNextLiveStream();
+            return;
+        }
+
+        // Stall timeout: if no 'playing' event fires within limit, try next
+        state.liveStallTimer = setTimeout(() => {
+            console.log('Live stream stalled:', streamUrl);
+            state.liveStreamIndex++;
+            tryNextLiveStream();
+        }, CONFIG.LIVE_STALL_TIMEOUT);
+
+        const onPlaying = () => {
+            clearLiveStallTimer();
+            elements.audioPlayer.removeEventListener('playing', onPlaying);
+        };
+        elements.audioPlayer.addEventListener('playing', onPlaying);
+
+        elements.audioPlayer.src = streamUrl;
+        elements.audioPlayer.play().catch(() => {
+            clearLiveStallTimer();
+            elements.audioPlayer.removeEventListener('playing', onPlaying);
+            state.liveStreamIndex++;
+            tryNextLiveStream();
+        });
     }
 
     // --- Rendering ---
@@ -438,6 +490,7 @@
         }
 
         stopAudioFocusKeepAlive();
+        clearLiveStallTimer();
 
         state.currentSlot = slot;
         state.isLive = false;
@@ -457,6 +510,7 @@
 
     function stopPlayback() {
         stopAudioFocusKeepAlive();
+        clearLiveStallTimer();
         elements.audioPlayer.pause();
         elements.audioPlayer.src = '';
         state.currentSlot = null;
@@ -634,8 +688,25 @@
         });
 
         elements.audioPlayer.addEventListener('error', () => {
+            if (state.isLive) {
+                clearLiveStallTimer();
+                state.liveStreamIndex++;
+                tryNextLiveStream();
+                return;
+            }
             showStatus('Fel vid uppspelning', true);
             stopPlayback();
+        });
+
+        // Stalled: browser stopped receiving data on live stream
+        elements.audioPlayer.addEventListener('stalled', () => {
+            if (state.isLive && !state.liveStallTimer) {
+                state.liveStallTimer = setTimeout(() => {
+                    console.log('Live stream stalled during playback');
+                    state.liveStreamIndex++;
+                    tryNextLiveStream();
+                }, CONFIG.LIVE_STALL_TIMEOUT);
+            }
         });
     }
 
