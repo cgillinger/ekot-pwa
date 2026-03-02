@@ -91,7 +91,7 @@ self.addEventListener('fetch', event => {
     }
 
     // SR live streams: network only (continuous byte stream)
-    if (url.hostname === 'live1.sr.se') {
+    if (url.hostname === 'live1.sr.se' || url.hostname === 'ljud1-cdn.sr.se') {
         event.respondWith(fetch(event.request));
         return;
     }
