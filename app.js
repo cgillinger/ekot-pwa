@@ -826,6 +826,9 @@
         elements.dateDisplay = document.getElementById('dateDisplay');
         elements.playerContainer = document.getElementById('playerContainer');
 
+        const versionLabel = document.getElementById('versionLabel');
+        if (versionLabel) versionLabel.textContent = 'v' + VERSION;
+
         state.lastFetchDate = getStockholmDate();
 
         setupAudioListeners();

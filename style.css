@@ -71,6 +71,13 @@ body {
     margin-bottom: 2px;
 }
 
+.version {
+    font-size: 0.55rem;
+    font-weight: 400;
+    opacity: 0.35;
+    vertical-align: super;
+}
+
 .date-display {
     font-size: 0.8rem;
     opacity: 0.9;
