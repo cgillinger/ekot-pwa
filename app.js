@@ -54,7 +54,8 @@
         isPaused: false,
         isLive: false,
         liveStreamIndex: 0,
-        liveStallTimer: null
+        liveStallTimer: null,
+        userPausedLive: false
     };
 
     // DOM Elements
@@ -384,6 +385,7 @@
         state.currentSlot = slot;
         state.isLive = true;
         state.isPaused = false;
+        state.userPausedLive = false;
         state.liveStreamIndex = 0;
 
         updateMediaSessionMetadata(slot);
@@ -582,13 +584,20 @@
 
         if (elements.audioPlayer.paused) {
             stopAudioFocusKeepAlive();
-            elements.audioPlayer.play().catch(error => {
-                console.error('Playback error:', error);
-                showStatus('Kunde inte spela upp ljudet', true);
-            });
+            if (state.isLive) {
+                // Always reconnect — old connection likely dead after background
+                playLiveStream(state.currentSlot);
+            } else {
+                elements.audioPlayer.play().catch(error => {
+                    console.error('Playback error:', error);
+                    showStatus('Kunde inte spela upp ljudet', true);
+                });
+            }
         } else {
             elements.audioPlayer.pause();
-            if (!state.isLive) {
+            if (state.isLive) {
+                state.userPausedLive = true;
+            } else {
                 startAudioFocusKeepAlive();
             }
         }
@@ -621,6 +630,7 @@
     }
 
     function onSeekStart(event) {
+        if (state.isLive) return;
         if (!elements.audioPlayer.src) return;
         if (!getPlaybackRange()) return;
         seekState.dragging = true;
@@ -780,12 +790,18 @@
 
         navigator.mediaSession.setActionHandler('play', () => {
             stopAudioFocusKeepAlive();
-            elements.audioPlayer.play();
+            if (state.isLive) {
+                playLiveStream(state.currentSlot);
+            } else {
+                elements.audioPlayer.play();
+            }
         });
 
         navigator.mediaSession.setActionHandler('pause', () => {
             elements.audioPlayer.pause();
-            if (!state.isLive) {
+            if (state.isLive) {
+                state.userPausedLive = true;
+            } else {
                 startAudioFocusKeepAlive();
             }
         });
@@ -802,6 +818,7 @@
         });
 
         navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (state.isLive) return;
             if (details.seekTime === undefined) return;
             const range = getPlaybackRange();
             if (!range) return;
@@ -829,6 +846,7 @@
 
     function updateMediaSessionPosition() {
         if (!('mediaSession' in navigator)) return;
+        if (state.isLive) return;
         const range = getPlaybackRange();
         if (!range) return;
         const duration = range.end - range.start;
@@ -886,6 +904,15 @@
         setupControlListeners();
         setupMediaSession();
         setupMidnightCheck();
+
+        // Reconnect live stream after app returns from background
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'visible') return;
+            if (!state.isLive || !state.currentSlot) return;
+            if (state.userPausedLive) return;
+            // Stream was playing before background — reconnect fresh
+            playLiveStream(state.currentSlot);
+        });
 
         renderTiles();
 
