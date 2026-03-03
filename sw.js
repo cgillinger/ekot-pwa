@@ -1,9 +1,9 @@
 /**
- * Ekot PWA Service Worker v2.3.1
+ * Ekot PWA Service Worker v2.3.2
  * Caches app shell for offline use, network-first for API data
  */
 
-const CACHE_NAME = 'ekot-pwa-v2.3.1';
+const CACHE_NAME = 'ekot-pwa-v2.3.2';
 
 const APP_SHELL = [
     './',

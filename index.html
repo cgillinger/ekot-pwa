@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
 
     <!-- App Version -->
-    <meta name="version" content="2.3.1">
+    <meta name="version" content="2.3.2">
 
     <!-- PWA Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -29,10 +29,10 @@
     <link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180x180.png">
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.webmanifest?v=2.3.1">
+    <link rel="manifest" href="manifest.webmanifest?v=2.3.2">
 
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=2.3.1">
+    <link rel="stylesheet" href="style.css?v=2.3.2">
 </head>
 <body>
     <div class="app-container">
@@ -84,18 +84,29 @@
         <audio id="silencePlayer" playsinline preload="none" loop></audio>
     </div>
 
-    <script src="app.js?v=2.3.1"></script>
+    <script src="app.js?v=2.3.2"></script>
     <script>
         if ('serviceWorker' in navigator) {
             const hadController = !!navigator.serviceWorker.controller;
 
             navigator.serviceWorker.addEventListener('controllerchange', () => {
                 if (!hadController) return;
+                // SW already navigates clients on activate, but show banner as fallback
                 document.getElementById('updateBanner').classList.add('visible');
             });
 
             navigator.serviceWorker.register('sw.js').then(reg => {
                 console.log('Service worker registered');
+
+                // Check for SW updates every 30 minutes
+                setInterval(() => reg.update(), 30 * 60 * 1000);
+
+                // Check for SW updates when app becomes visible (user switches back)
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') {
+                        reg.update();
+                    }
+                });
             }).catch(err => {
                 console.log('Service worker registration failed:', err);
             });
