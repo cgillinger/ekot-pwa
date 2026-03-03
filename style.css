@@ -257,15 +257,7 @@ body {
     font-weight: 700;
 }
 
-/* Live mode with seekable range — re-enable controls */
-.player-container.live-mode.live-seekable .progress-bar {
-    pointer-events: auto;
-}
-
-.player-container.live-mode.live-seekable .progress-thumb {
-    display: block;
-}
-
+/* Live mode with seekable range — re-enable skip buttons (not seekbar) */
 .player-container.live-mode.live-seekable .control-btn:not(.play-pause) {
     opacity: 1;
     pointer-events: auto;
