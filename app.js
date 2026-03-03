@@ -1,5 +1,5 @@
 /**
- * Ekot PWA v2.3.1
+ * Ekot PWA v2.3.2
  * Progressive web app for Sveriges Radio Ekot broadcasts
  * Talks directly to SR's open JSON API — no server proxy needed
  */
@@ -7,7 +7,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '2.3.1';
+    const VERSION = '2.3.2';
     console.log(`Ekot PWA v${VERSION}`);
 
     // Detect native HLS support (Safari on iOS/macOS)
@@ -107,6 +107,20 @@
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function getPlaybackRange() {
+        if (state.isLive) {
+            const seekable = elements.audioPlayer.seekable;
+            if (seekable.length === 0) return null;
+            const start = seekable.start(0);
+            const end = seekable.end(seekable.length - 1);
+            if (end - start < 1) return null;
+            return { start, end };
+        }
+        const dur = elements.audioPlayer.duration;
+        if (!dur) return null;
+        return { start: 0, end: dur };
     }
 
     function showStatus(message, isError = false, duration = 3000) {
@@ -342,6 +356,9 @@
 
     function updatePlayerForLiveMode(isLive) {
         elements.playerContainer.classList.toggle('live-mode', isLive);
+        if (!isLive) {
+            elements.playerContainer.classList.remove('live-seekable');
+        }
         if (isLive) {
             elements.currentTime.textContent = 'LIVE';
             elements.duration.textContent = '';
@@ -571,21 +588,20 @@
             });
         } else {
             elements.audioPlayer.pause();
-            startAudioFocusKeepAlive();
+            if (!state.isLive) {
+                startAudioFocusKeepAlive();
+            }
         }
     }
 
     function skipTime(seconds) {
-        if (state.isLive) return;
-        if (elements.audioPlayer.src) {
-            elements.audioPlayer.currentTime = Math.max(
-                0,
-                Math.min(
-                    elements.audioPlayer.duration || 0,
-                    elements.audioPlayer.currentTime + seconds
-                )
-            );
-        }
+        if (!elements.audioPlayer.src) return;
+        const range = getPlaybackRange();
+        if (!range) return;
+        elements.audioPlayer.currentTime = Math.max(
+            range.start,
+            Math.min(range.end, elements.audioPlayer.currentTime + seconds)
+        );
     }
 
     // --- Seekbar drag ---
@@ -605,8 +621,8 @@
     }
 
     function onSeekStart(event) {
-        if (state.isLive) return;
-        if (!elements.audioPlayer.src || !elements.audioPlayer.duration) return;
+        if (!elements.audioPlayer.src) return;
+        if (!getPlaybackRange()) return;
         seekState.dragging = true;
         elements.progressBar.classList.add('seeking');
         onSeekMove(event);
@@ -617,27 +633,58 @@
         event.preventDefault();
         const clientX = event.touches ? event.touches[0].clientX : event.clientX;
         const percent = getSeekPercent(clientX);
-        // Update visual immediately during drag (no audio seek yet for smoothness)
         elements.progressFill.style.width = `${percent * 100}%`;
-        const total = elements.audioPlayer.duration || 0;
-        elements.currentTime.textContent = formatTime(percent * total);
+        const range = getPlaybackRange();
+        if (range) {
+            const total = range.end - range.start;
+            if (state.isLive) {
+                const behind = total * (1 - percent);
+                elements.currentTime.textContent = behind < 5 ? 'LIVE' : '\u2212' + formatTime(behind);
+            } else {
+                elements.currentTime.textContent = formatTime(percent * total);
+            }
+        }
     }
 
     function onSeekEnd(event) {
         if (!seekState.dragging) return;
         seekState.dragging = false;
         elements.progressBar.classList.remove('seeking');
-        if (!elements.audioPlayer.src || !elements.audioPlayer.duration) return;
-        // Determine final position from the last known position
+        const range = getPlaybackRange();
+        if (!range) return;
         const clientX = event.changedTouches
             ? event.changedTouches[0].clientX
             : event.clientX;
         const percent = getSeekPercent(clientX);
-        elements.audioPlayer.currentTime = percent * elements.audioPlayer.duration;
+        elements.audioPlayer.currentTime = range.start + percent * (range.end - range.start);
     }
 
     function updateProgress() {
-        if (state.isLive) return;
+        if (seekState.dragging) return;
+
+        if (state.isLive) {
+            const seekable = elements.audioPlayer.seekable;
+            const hasRange = seekable.length > 0 &&
+                (seekable.end(seekable.length - 1) - seekable.start(0)) > 15;
+            elements.playerContainer.classList.toggle('live-seekable', hasRange);
+
+            if (seekable.length === 0) return;
+
+            const start = seekable.start(0);
+            const end = seekable.end(seekable.length - 1);
+            const current = elements.audioPlayer.currentTime;
+            const behind = end - current;
+
+            elements.currentTime.textContent = behind < 5 ? 'LIVE' : '\u2212' + formatTime(behind);
+            elements.duration.textContent = 'LIVE';
+
+            const total = end - start;
+            if (total > 0) {
+                elements.progressFill.style.width = `${((current - start) / total) * 100}%`;
+            }
+            return;
+        }
+
         const current = elements.audioPlayer.currentTime || 0;
         const total = elements.audioPlayer.duration || 0;
 
@@ -738,7 +785,9 @@
 
         navigator.mediaSession.setActionHandler('pause', () => {
             elements.audioPlayer.pause();
-            startAudioFocusKeepAlive();
+            if (!state.isLive) {
+                startAudioFocusKeepAlive();
+            }
         });
 
         navigator.mediaSession.setActionHandler('previoustrack', () => skipTime(-15));
@@ -753,10 +802,10 @@
         });
 
         navigator.mediaSession.setActionHandler('seekto', (details) => {
-            if (state.isLive) return;
-            if (details.seekTime !== undefined && elements.audioPlayer.duration) {
-                elements.audioPlayer.currentTime = details.seekTime;
-            }
+            if (details.seekTime === undefined) return;
+            const range = getPlaybackRange();
+            if (!range) return;
+            elements.audioPlayer.currentTime = range.start + Math.max(0, Math.min(range.end - range.start, details.seekTime));
         });
 
         navigator.mediaSession.setActionHandler('stop', () => stopPlayback());
@@ -780,14 +829,16 @@
 
     function updateMediaSessionPosition() {
         if (!('mediaSession' in navigator)) return;
-        if (state.isLive) return;
-        if (!elements.audioPlayer.duration) return;
+        const range = getPlaybackRange();
+        if (!range) return;
+        const duration = range.end - range.start;
+        if (duration <= 0) return;
 
         try {
             navigator.mediaSession.setPositionState({
-                duration: elements.audioPlayer.duration,
+                duration: duration,
                 playbackRate: elements.audioPlayer.playbackRate,
-                position: elements.audioPlayer.currentTime
+                position: Math.min(duration, Math.max(0, elements.audioPlayer.currentTime - range.start))
             });
         } catch (e) {
             // setPositionState may not be supported everywhere
