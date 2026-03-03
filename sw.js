@@ -1,13 +1,16 @@
 /**
- * Ekot PWA Service Worker v2.3.2
+ * Ekot PWA Service Worker
  * Caches app shell for offline use, network-first for API data
  */
 
-const CACHE_NAME = 'ekot-pwa-v2.3.2';
+importScripts('./version.js');
+
+const CACHE_NAME = 'ekot-pwa-v' + APP_VERSION;
 
 const APP_SHELL = [
     './',
     './index.html',
+    './version.js',
     './app.js',
     './style.css',
     './manifest.webmanifest',
@@ -30,11 +33,18 @@ const APP_SHELL = [
     './assets/icon-tile-384x384.png'
 ];
 
-// Install: cache app shell
+// Install: cache app shell (bypass HTTP cache to guarantee fresh files)
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(APP_SHELL))
+            .then(cache =>
+                Promise.all(
+                    APP_SHELL.map(url =>
+                        fetch(url, { cache: 'reload' })
+                            .then(res => cache.put(url, res))
+                    )
+                )
+            )
             .then(() => self.skipWaiting())
     );
 });
