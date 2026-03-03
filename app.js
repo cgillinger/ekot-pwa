@@ -1,5 +1,5 @@
 /**
- * Ekot PWA v2.3.2
+ * Ekot PWA
  * Progressive web app for Sveriges Radio Ekot broadcasts
  * Talks directly to SR's open JSON API — no server proxy needed
  */
@@ -7,7 +7,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '2.3.2';
+    const VERSION = APP_VERSION;
     console.log(`Ekot PWA v${VERSION}`);
 
     // Detect native HLS support (Safari on iOS/macOS)
